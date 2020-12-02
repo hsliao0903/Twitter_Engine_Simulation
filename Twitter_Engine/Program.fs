@@ -100,7 +100,9 @@ let mentionMap = new Dictionary<int, List<string>>()
 let config =
     Configuration.parse
         @"akka {
-            loglevel : DEBUG
+            log-config-on-start = off
+            log-dead-letters = off
+            log-dead-letters-during-shutdown = off
             actor {
                 provider = ""Akka.Remote.RemoteActorRefProvider, Akka.Remote""
 
@@ -118,7 +120,9 @@ let config =
         }"
 
 let system = System.create "TwitterEngine" config
-
+(* Global variable to count requests and tweets *)
+let mutable totalRequests = 0
+let mutable totalTweets = 0
 
 (* Helper Functions for access storage data structure *)
 
@@ -237,13 +241,25 @@ let updateRetweet userID (orgTweetInfo:TweetInfo) =
     if (pubMap.ContainsKey(userID)) then
         for subscriberID in (pubMap.[userID]) do
             updateHistoryDB subscriberID (orgTweetInfo.TweetID)         
-        
-        
+
+let assignTweetID (orgTweetInfo:TweetInfo) =
+    let newTweetInfo:TweetInfo = {
+        ReqType = orgTweetInfo.ReqType ;
+        UserID  = orgTweetInfo.UserID ;
+        TweetID = totalTweets.ToString() ; // assign new tweetID according to total tweet counts
+        Time = orgTweetInfo.Time ;
+        Content = orgTweetInfo.Content ;
+        Tag = orgTweetInfo.Tag ;
+        Mention = orgTweetInfo.Mention ;
+        RetweetTimes = orgTweetInfo.RetweetTimes ;
+    }
+    newTweetInfo
 
 (* Actor Nodes *)
 let serverActorNode (serverMailbox:Actor<string>) =
     let nodeName = serverMailbox.Self.Path.Name
     
+
     // if user successfully connected (login), add the user to a set
     let mutable onlineUserCounter = 0
     let mutable onlineUserSet = Set.empty
@@ -269,7 +285,8 @@ let serverActorNode (serverMailbox:Actor<string>) =
         let  jsonMsg = JsonValue.Parse(message)
         let  reqType = jsonMsg?ReqType.AsString()
         let  userID = jsonMsg?UserID.AsInteger()
-        printfn "\n[%s] Receive message %A\n" nodeName message
+        totalRequests <- totalRequests + 1
+        printfn "\n[%s] Receive message %A \n totalRequests: %i totalTweets: %i totalUsers: %i" nodeName message totalRequests totalTweets regMap.Keys.Count
 
         match reqType with
             | "Register" ->
@@ -283,21 +300,20 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     ReqType = "Reply" ;
                     Type = reqType ;
                     Status =  status ;
-                    Desc =  None ;
+                    Desc =  Some (regMsg.UserID.ToString()) ;
                 }
                 
                 (* Reply for the register satus *)
                 sender <!  (Json.serialize reply)
 
-                printfn "[%s] register map: \n%A\n" nodeName regMap
-                for entry in regMap do
-                    printfn "Test %s" (entry.Value.PublicKey |> Option.defaultValue "")
-                    //printfn "Test %s" entry.Key
 
                 return! loop()
             | "SendTweet" ->
-                let tweetInfo = (Json.deserialize<TweetInfo> message)
-                printfn "[%s] Received a send Tweet reqeust from User%s" nodeName (sender.Path.Name)
+                totalTweets <- totalTweets + 1
+                let orgtweetInfo = (Json.deserialize<TweetInfo> message)
+                let tweetInfo = assignTweetID orgtweetInfo
+                printfn "[%s] Received a Tweet reqeust from User%s" nodeName (sender.Path.Name)
+                printfn "%A" tweetInfo
                 (* Store the informations for this tweet *)
                 (* Check if the userID has already registered? if not, don't accept this Tweet *)
                 if (isValidUser tweetInfo.UserID) then
@@ -327,7 +343,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                 (* user might assign a specific retweetID or empty string *)
                 if retweetID = "" then
                     (* make sure the target user has at least one tweet in his history *)
-                    if (isValidUser tUserID) && historyMap.[tUserID].Count > 0 then
+                    if (isValidUser tUserID) && historyMap.ContainsKey(tUserID) && historyMap.[tUserID].Count > 0 then
                         (* random pick one tweet from the target user's history *)
                         let rnd = Random()
                         let numTweet = historyMap.[tUserID].Count
@@ -401,7 +417,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         ReqType = "Reply" ;
                         Type = reqType ;
                         Status =  "Success" ;
-                        Desc =  Some "Successfully connected to the Twitter server" ;
+                        Desc =  Some (userID.ToString()) ;
                     }
                     sender <! (Json.serialize reply)
                 
@@ -414,7 +430,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     ReqType = "Reply" ;
                     Type = reqType ;
                     Status =  "Success" ;
-                    Desc =  Some "Successfully disconencted from the Twitter server" ;
+                    Desc =   Some (userID.ToString()) ;
                 }
                 sender <! (Json.serialize reply)
                 return! loop()
