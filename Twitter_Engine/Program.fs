@@ -38,6 +38,7 @@ type TweetInfo = {
     Content : string
     Tag : string
     Mention : int
+    RetweetTimes : int
 }
 
 type TweetReply = {
@@ -69,6 +70,13 @@ type QueryInfo = {
     ReqType : string
     UserID : int
     Tag : string
+}
+
+type RetweetInfo = {
+    ReqType: string
+    UserID : int
+    TargetUserID : int
+    RetweetID : string
 }
 
 (* Data Collections to Store Client informations *)
@@ -134,7 +142,9 @@ let updateHistoryDB userID tweetID =
             newList.Add(tweetID)
             historyMap.Add(userID, newList)
         else
-            (historyMap.[userID]).Add(tweetID)
+            (* No duplicate tweetID in one's history *)
+            if not (historyMap.[userID].Contains(tweetID)) then
+                (historyMap.[userID]).Add(tweetID)
     
 let updateTagDB tag tweetID = 
     (* Update Tag database *)
@@ -198,18 +208,35 @@ let updateTweetDB (newInfo:TweetInfo) =
     updateMentionDB mention tweetID
     updateHistoryDB mention tweetID
 
-
-    printfn "test123 subbbbbbbbbb"
     (* If the user has subscribers update their historyDB *)
     if (pubMap.ContainsKey(userID)) then
         for subscriberID in (pubMap.[userID]) do
-            printfn "subscriberID: %i" subscriberID
             (* If the tweet mentions it's author's subscriber, skip it to avoid duplicate tweetID in history *)
-            if mention <> subscriberID then
-                updateHistoryDB subscriberID tweetID
-    
+            //if mention <> subscriberID then
+            updateHistoryDB subscriberID tweetID
 
-            
+(* userID: the user who would like to retweet *)
+let updateRetweet userID (orgTweetInfo:TweetInfo) =
+    let newTweetInfo:TweetInfo = {
+        ReqType = orgTweetInfo.ReqType ;
+        UserID  = orgTweetInfo.UserID ;
+        TweetID = orgTweetInfo.TweetID ;
+        Time = orgTweetInfo.Time ;
+        Content = orgTweetInfo.Content ;
+        Tag = orgTweetInfo.Tag ;
+        Mention = orgTweetInfo.Mention ;
+        RetweetTimes = (orgTweetInfo.RetweetTimes+1) ;
+    }
+    (* Increase the retweet times by one *)
+    tweetMap.[orgTweetInfo.TweetID] <- newTweetInfo
+
+    (* Add to the history *)
+    updateHistoryDB userID (orgTweetInfo.TweetID)
+   
+    (* If the user has subscribers update their historyDB *)
+    if (pubMap.ContainsKey(userID)) then
+        for subscriberID in (pubMap.[userID]) do
+            updateHistoryDB subscriberID (orgTweetInfo.TweetID)         
         
         
 
@@ -289,6 +316,60 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Type = reqType ;
                         Status =  "Failed" ;
                         Desc =  Some "The user should be registered before sending a Tweet" ;
+                    }
+                    sender <! (Json.serialize reply)
+                return! loop()
+            | "Retweet" ->
+                let retweetID = jsonMsg?RetweetID.AsString()
+                let tUserID = jsonMsg?TargetUserID.AsInteger()
+                let mutable isFail = false
+                
+                (* user might assign a specific retweetID or empty string *)
+                if retweetID = "" then
+                    (* make sure the target user has at least one tweet in his history *)
+                    if (isValidUser tUserID) && historyMap.[tUserID].Count > 0 then
+                        (* random pick one tweet from the target user's history *)
+                        let rnd = Random()
+                        let numTweet = historyMap.[tUserID].Count
+                        let rndIdx = rnd.Next(numTweet)
+                        let targetReTweetID = historyMap.[tUserID].[rndIdx]
+                        let retweetInfo = tweetMap.[targetReTweetID]
+                        //let keyArray = Array.create (totalNum) ""
+                        //tweetMap.Keys.CopyTo(keyArray, 0)
+
+                        (* check if the author is the one who send retweet request *)
+                        if (retweetInfo.UserID <> userID) then
+                            updateRetweet userID retweetInfo
+                        else
+                            isFail <- true
+                    else
+                        isFail <- true
+                else
+                    (* Check if it is a valid retweet ID in tweetDB *)
+                    if tweetMap.ContainsKey(retweetID) then
+                        (* check if the author is the one who send retweet request *)
+                        if (tweetMap.[retweetID].UserID) <> userID then
+                            updateRetweet userID (tweetMap.[retweetID])
+                        else
+                            isFail <- true
+                    else
+                        isFail <- true
+
+                (* Deal with reply message *)
+                if isFail then
+                    let (reply:ReplyInfo) = { 
+                        ReqType = "Reply" ;
+                        Type = "SendTweet" ;
+                        Status =  "Failed" ;
+                        Desc =  Some "The random choose of retweet fails (same author situation)" ;
+                    }
+                    sender <! (Json.serialize reply)
+                else
+                    let (reply:ReplyInfo) = { 
+                        ReqType = "Reply" ;
+                        Type = "SendTweet" ;
+                        Status =  "Success" ;
+                        Desc =  Some "Successfully retweet the Tweet!" ;
                     }
                     sender <! (Json.serialize reply)
                 return! loop()
@@ -484,12 +565,22 @@ let serverActorNode (serverMailbox:Actor<string>) =
 [<EntryPoint>]
 let main argv =
     try
-
+        let asd = new Dictionary<string, List<int>>()
+        
         let tmpList = new List<int>()
         tmpList.Add(4)
         tmpList.Add(55)
         tmpList.Add(666)
         tmpList.Add(2)
+        asd.Add("a", tmpList)
+        asd.Add("b", tmpList)
+        let tmparr = Array.create  asd.Keys.Count ""
+        printfn "%A" tmparr
+        asd.Keys.CopyTo(tmparr,0)
+        printfn "%A %A" (asd.Count) (tmparr.[1])
+        
+        for entry in asd do
+            printfn "%A %A" entry.Key entry.Value
 
         for entry in (tmpList.ToArray()) do
             printfn "%i\n" entry

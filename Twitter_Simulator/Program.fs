@@ -2,6 +2,7 @@ open System
 open System.Security.Cryptography
 open System.Globalization
 open System.Text
+open System.Collections.Generic
 open Akka.Actor
 open Akka.FSharp
 open System.Diagnostics
@@ -39,6 +40,7 @@ type TweetInfo = {
     Content : string
     Tag : string
     Mention : int
+    RetweetTimes : int
 }
 
 type TweetReply = {
@@ -70,6 +72,13 @@ type QueryInfo = {
     ReqType : string
     UserID : int
     Tag : string
+}
+
+type RetweetInfo = {
+    ReqType: string
+    UserID : int
+    TargetUserID : int
+    RetweetID : string
 }
 
  (* Actor System Configuration Settings (Locaol Side) *)
@@ -135,8 +144,24 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     Content = "I am User" + (nodeID.ToString()) + ", I sends a Tweet!" ;
                     Tag = "#Intro" ;
                     Mention = rnd.Next(3) ;
+                    RetweetTimes = 0 ;
                 }
                 serverNode <! (Json.serialize tmpTweet)
+                return! loop()
+            | "Retweet" ->
+                if isOffline then
+                    printfn "[%s] Send tweet failed, please connect to Twitter server first" nodeName
+                    return! loop()
+
+                (* user could enter a tweetID or empty string (let server choose) as retweet ID *)
+                let rnd = Random()
+                let (tmpreweet:RetweetInfo) = {
+                    ReqType = reqType ;
+                    UserID  = nodeID ;
+                    TargetUserID =  1;//rnd.Next(3);
+                    RetweetID = "" ;
+                }
+                serverNode <! (Json.serialize tmpreweet)
                 return! loop()
             | "Subscribe" ->
                 if isOffline then
@@ -220,9 +245,9 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     | "SendTweet" ->
                         let status = jsonMsg?Status.AsString()
                         if status = "Success" then
-                            printfn "[%s] Send Tweet done!" nodeName
+                            printfn "[%s] %s" nodeName (jsonMsg?Desc.AsString())
                         else
-                            printfn "[%s] Send Tweet failed! Desc: %s" nodeName (jsonMsg?Desc.AsString())
+                            printfn "[%s] %s" nodeName (jsonMsg?Desc.AsString())
                         ()
                     | "Connect" ->
                         let status = jsonMsg?Status.AsString()
@@ -254,7 +279,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                         printfn "\n------------------------------------"
                         printfn "Index: %i      Time: %s" (tweetReplyInfo.Status) (tweetInfo.Time.ToString())
                         printfn "Author: User%i" (tweetInfo.UserID)
-                        printfn "Content: {%s}\n%s @User%i" (tweetInfo.Content) (tweetInfo.Tag) (tweetInfo.Mention)
+                        printfn "Content: {%s}\n%s  @User%i  Retweet times: %i" (tweetInfo.Content) (tweetInfo.Tag) (tweetInfo.Mention) (tweetInfo.RetweetTimes)
                         printfn "TID: %s" (tweetInfo.TweetID)
                         ()
                     | "ShowSub" ->
@@ -294,6 +319,7 @@ let main argv =
         globalTimer.Start()
         printfn "%A@%A" globalTimer.Elapsed globalTimer.GetHashCode
         printfn "%A" globalTimer.Elapsed
+        let asd = new Dictionary<string, TweetInfo>()
         let tmpTweet:TweetInfo = {
             ReqType = "SendTweet" ;
             UserID  = 1 ;
@@ -303,8 +329,22 @@ let main argv =
             Content = "hehehehet" ;
             Tag = "#tagg" ;
             Mention = 2 ;
+            RetweetTimes = 0;
         }
-        let json = Json.serialize tmpTweet
+        asd.Add("a", tmpTweet)
+        let newTweet:TweetInfo = {
+            ReqType = "SendTweet" ;
+            UserID  = 1 ;
+            //TweetID = DateTime.Now.ToString() + "9527" ;
+            TweetID = globalTimer.Elapsed.Ticks.ToString() ;
+            Time = DateTime.Now ;
+            Content = "hehehehet" ;
+            Tag = "#tagg" ;
+            Mention = 2 ;
+            RetweetTimes = 0+1;
+        }
+        //asd.["a"] <- newTweet
+        let json = Json.serialize asd.["a"]
         printfn "oewrj:\n %s\n" json
         let aaa:TweetInfo = Json.deserialize<TweetInfo> json
         printfn "%A" aaa
@@ -321,6 +361,7 @@ let main argv =
         let triggerQMen = """{"ReqType":"QueryMention"}"""
         let triggerQtag = """{"ReqType":"QueryTag"}"""
         let triggerQsub = """{"ReqType":"QuerySubscribe"}"""
+        let triggerRetweet = """{"ReqType":"Retweet"}"""
 
         clientActor <! triggerReg
         clientActor2 <! triggerReg
@@ -331,10 +372,11 @@ let main argv =
         for i in 1 .. 3 do
             clientActor <! triggerSub
             clientActor2 <! triggerSub
-        clientActor2 <! triggerSend
+        clientActor <! triggerSend
         Console.ReadLine() |> ignore
+        clientActor <! triggerRetweet  //retweet user1
         for i in 1 .. 20 do
-            clientActor <! triggerSend
+             clientActor2 <! triggerRetweet
         Console.ReadLine() |> ignore
         clientActor <! triggerSend
         Console.ReadLine() |> ignore
