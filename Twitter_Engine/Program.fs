@@ -285,6 +285,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
         let  jsonMsg = JsonValue.Parse(message)
         let  reqType = jsonMsg?ReqType.AsString()
         let  userID = jsonMsg?UserID.AsInteger()
+        //printfn "%A" sender.Path
         totalRequests <- totalRequests + 1
         printfn "\n[%s] Receive message %A \n totalRequests: %i totalTweets: %i totalUsers: %i" nodeName message totalRequests totalTweets regMap.Keys.Count
 
@@ -307,7 +308,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                 sender <!  (Json.serialize reply)
 
 
-                return! loop()
+                //return! loop()
             | "SendTweet" ->
                 totalTweets <- totalTweets + 1
                 let orgtweetInfo = (Json.deserialize<TweetInfo> message)
@@ -334,7 +335,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  Some "The user should be registered before sending a Tweet" ;
                     }
                     sender <! (Json.serialize reply)
-                return! loop()
+                //return! loop()
             | "Retweet" ->
                 let retweetID = jsonMsg?RetweetID.AsString()
                 let tUserID = jsonMsg?TargetUserID.AsInteger()
@@ -388,7 +389,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  Some "Successfully retweet the Tweet!" ;
                     }
                     sender <! (Json.serialize reply)
-                return! loop()
+                //return! loop()
             | "Subscribe" ->
                 let status = updatePubSubDB (jsonMsg?PublisherID.AsInteger()) (jsonMsg?UserID.AsInteger())
                 let (reply:ReplyInfo) = { 
@@ -398,7 +399,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  None ;
                 }
                 sender <! (Json.serialize reply)
-                return! loop()
+                //return! loop()
 
             | "Connect" ->
                 let userID = jsonMsg?UserID.AsInteger()
@@ -421,7 +422,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     }
                     sender <! (Json.serialize reply)
                 
-                return! loop()
+                //return! loop()
             | "Disconnect" ->
                 
                 (* if disconnected, user cannot query or send tweet *)
@@ -433,7 +434,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     Desc =   Some (userID.ToString()) ;
                 }
                 sender <! (Json.serialize reply)
-                return! loop()
+                //return! loop()
             | "QueryHistory" ->
                     
                 (* No any Tweet in history *)
@@ -466,7 +467,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  Some "Query history Tweets done" ;
                     }
                     sender <! (Json.serialize reply)       
-                return! loop()
+                //return! loop()
             | "QueryMention" ->
                 (* No any Tweet that mentioned User *)
                 if not (mentionMap.ContainsKey(userID)) then
@@ -498,7 +499,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  Some "Query mentioned Tweets done" ;
                     }
                     sender <! (Json.serialize reply)       
-                return! loop()
+                //return! loop()
             | "QueryTag" ->
                 let tag = jsonMsg?Tag.AsString()
                 (* No any Tweet that mentioned User *)
@@ -531,7 +532,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  Some ("Query Tweets with "+tag+ " done") ;
                     }
                     sender <! (Json.serialize reply)       
-                return! loop()
+                //return! loop()
             | "QuerySubscribe" ->
                 
                 (* the user doesn't have any publisher subscripver information *)
@@ -567,11 +568,11 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Publisher = pubMap.[userID].ToArray() ;
                     }
                     sender <! (Json.serialize subReply)                    
-                return! loop()
+                //return! loop()
             | _ ->
                 printfn "client \"%s\" received unknown message \"%s\"" nodeName reqType
                 Environment.Exit 1
-                return! loop()
+                //return! loop()
          
         return! loop()
     }
