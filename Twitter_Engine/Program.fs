@@ -525,7 +525,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         }
                         sender <! (Json.serialize tweetReply)
 
-                    (* After sending ball all the history tweet, reply to sender *)
+                    (* After sending back all the history tweet, reply to sender *)
                     let (reply:ReplyInfo) = { 
                         ReqType = "Reply" ;
                         Type = "QueryHistory" ;

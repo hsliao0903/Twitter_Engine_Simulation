@@ -229,7 +229,12 @@ let clientActorNode (clientMailbox:Actor<string>) =
                                 serverNode <! message
                         else
                             if isSimulation then
-                                serverNode <! message
+                                let (queryMsg:QueryInfo) = {
+                                    ReqType = reqType ;
+                                    UserID = nodeID ;
+                                    Tag = "" ;
+                                }
+                                serverNode <! (Json.serialize queryMsg)
                             else
                                 serverNode <! message
 
@@ -324,6 +329,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             printfn "TID: %s" (tweetInfo.TweetID)
 
                     | "ShowSub" ->
+                        isQuerying <- false
                         if not isSimulation then
                             let subReplyInfo = (Json.deserialize<SubReply> message)
                             
@@ -337,7 +343,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                                 printf "User%i " id
                             printfn "\n"
                             printfn "[%s] Query Subscribe done" nodeName
-                            isQuerying <- false
+                            
 
                     | _ ->
                         printfn "[%s] Unhandled Reply Message" nodeName
@@ -535,26 +541,50 @@ let subscribe (client: IActorRef) (publisher: IActorRef) =
         PublisherID = (int) publisher.Path.Name;
     }
     client <! (Json.serialize request)
+let retweet (client: IActorRef) (targetUserID: int)=
+    let (request: RetweetInfo) = {
+        ReqType = "Retweet";
+        RetweetID = "";
+        TargetUserID = targetUserID;
+        UserID = (int) client.Path.Name;
+    }
+    client <! (Json.serialize request)
 let connect (client: IActorRef) = 
     client <! """{"ReqType":"Connect"}"""
 let disconnect (client: IActorRef) = 
     client <! """{"ReqType":"Disconnect"}"""
 let queryHistory (client: IActorRef) = 
     client <! """{"ReqType":"QueryHistory"}"""
-let queryByMention (client: IActorRef) = 
-    client <! """{"ReqType":"QueryMention"}"""
-let queryByTag (client: IActorRef) = 
-    client <! """{"ReqType":"QueryTag"}"""
-let queryBySubscribtion (client: IActorRef) = 
-    client <! """{"ReqType":"QuerySubscribe"}"""
-
+let queryByMention (client: IActorRef) (mentionedUserID: int) = 
+    let (request: QueryInfo) = {
+        ReqType = "QueryHistory";
+        Tag = "";
+        UserID = mentionedUserID;
+    }
+    client <! (Json.serialize request)
+let queryByTag (client: IActorRef) (tag: string)= 
+    let (request: QueryInfo) = {
+        ReqType = "QueryTag";
+        Tag = tag;
+        UserID = 0;
+    }
+    client <! (Json.serialize request)
+let queryBySubscribtion (client: IActorRef) (id: int) = 
+    let (request: QueryInfo) = {
+            ReqType = "QuerySubscribe";
+            Tag = "";
+            UserID = id;
+        }
+    client <! (Json.serialize request)
 // ----------------------------------------------------------
 // Simulator Functions
 // | spawnClients
-// | clientSampler
+// | arraySampler
 // | shuffleList
 // | getNumOfSub : Assign random popularity (Zipf) to each acotr
 // | tagSampler
+// | getConnectedID
+// | getDisconnectedID
 // ----------------------------------------------------------
 
 let spawnClients (clientNum: int) = 
@@ -562,25 +592,36 @@ let spawnClients (clientNum: int) =
     |> List.map (fun id -> spawn system ((string) id) clientActorNode)
     |> List.toArray
 
-let clientSampler (allClients: IActorRef []) (num: int) = 
+let arraySampler (arr: 'a []) (num: int) = 
     let random = Random()
-    let rand () = random.Next(1, (Array.length allClients))
-    [for i in 1 .. num -> allClients.[rand()]] 
+    let rand () = random.Next(1, (Array.length arr))
+    [for i in 1 .. num -> arr.[rand()]] 
 
 let shuffleList (rand: Random) (l) = 
-    l |> List.sortBy (fun _ -> rand.Next()) 
+    l |> Array.sortBy (fun _ -> rand.Next()) 
 
 let getNumOfSub (numClients: int)= 
     let constant = List.fold (fun acc i -> acc + (1.0/i)) 0.0 [1.0 .. (float) numClients]
     let res =
         [1.0 .. (float) numClients] 
         |> List.map (fun x -> (float) numClients/(x*constant) |> Math.Round |> int)
+        |> List.toArray
     shuffleList (Random()) res             
 
 let tagSampler (hashtags: string []) = 
     let random = Random()
     let rand () = random.Next(hashtags.Length-1)
     hashtags.[rand()]
+
+let getConnectedID (connections: bool []) =
+    [1 .. connections.Length-1]
+    |> List.filter (fun i -> connections.[i])
+    |> List.toArray
+
+let getDisconnectedID (connections: bool []) =
+    [1 .. connections.Length-1]
+    |> List.filter (fun i -> not connections.[i])
+    |> List.toArray
 
 
 
@@ -785,20 +826,39 @@ let main argv =
 
         // ----------------------------------------------------------
         // Simulator Scenerio
-        // 1. spawn clients
-        // 2. register all clients
-        // 3. randomly subscribe each other (follow the Zipf)
-        // 4. assign random number tweets (1~5) for each client to send
-        // 5. 
+        // * BASIC SETUP
+        //   1. spawn clients
+        //   2. register all clients
+        //   3. randomly subscribe each other (follow the Zipf)
+        //   4. assign random number n = (1 .. 5) * (# of subscriptions) 
+        //      tweets with randomly selected tag and mentioned 
+        //      for each client to send
+        //   5. make all clients disconnected
+        // * In every 2 second
+        //   1. randomly select some clients connected
+        //   2. randomly select some clients disconnected
+        //   3. randomly select some connected clients send tweets
+        //   4. randomly select some connected clients retweet
+        //   5.
         // ----------------------------------------------------------
-        
         (* Setup *)
         numClients <- 1000
+        let propOnline = 0.6
+        let propSendTweet = 0.5
+        let propRetweet = 0.3
+        let maxCycle = 500
+        let numOnline =  propOnline * (float)numClients |> int
+        let numSendTweet = (float)numOnline * propSendTweet |> int
+        let numDoSome = (float) numOnline * propRetweet |> int
         let hashtags = [|"#abc";"#123"; "#DOSP"; "#Twitter"; "#Akka"; "#Fsharp"|]
+
+        printfn "-----------------------------Simulation Setup--------------------------------"
+        printfn " numOneline: %d, numSendTweet: %d, numDoSome: %d" numOnline numSendTweet numDoSome
+        printfn "-----------------------------------------------------------------------------"   
+        printfn "Press ENTER to start simulation"
+        Console.ReadLine() |> ignore
         (* 1. spawn clients *)
-
         let myClients = spawnClients numClients
-
         //clientSampler myClients 5 |> List.iter(fun client -> printfn "%s" (client.Path.ToString()))
         //clientSampler myClients 5 |> List.iter(fun client -> printfn "%s" (client.Path.ToString()))
         
@@ -811,48 +871,158 @@ let main argv =
         |> Async.Parallel
         |> Async.RunSynchronously
         |> ignore
-        
-
-        
-        Console.ReadLine() |> ignore
-        
+                
         (* 3. randomly subscribe each other (follow the Zipf) *)
         let numOfSub = getNumOfSub numClients
-        printfn "[debug] numofSub:\n%A" numOfSub
         myClients
         |> Array.mapi(fun i client ->
             async {
                 let sub = numOfSub.[i]
-                let mutable s = sub
+                let mutable s = Set.empty
                 let rand = Random()
-                while s > 0 do
-                    let subscriber = rand.Next(numClients)
-                    if subscriber <> i then
-                        s <- s - 1
+                while s.Count < sub do
+                    let subscriber = rand.Next(numClients-1)
+                    if myClients.[subscriber].Path.Name <> client.Path.Name && not (s.Contains(subscriber)) then
+                        s <- s.Add(subscriber)
                         subscribe (myClients.[subscriber]) client
-                //printfn "user%s has enough subscriber(%d)" client.Path.Name sub
             })
         |> Async.Parallel
         |> Async.RunSynchronously
         |> ignore
-        Console.ReadLine() |> ignore
         
-        (* 4. assign random number tweets (1~5) for each client to send *)
+        (* 4. assign random number n = (1 .. 5) * (# of subscriptions) tweets  for each client to send *)
         myClients
-        |> Array.map (fun client ->
+        |> Array.mapi (fun i client ->
             async{
-                let rand = Random()
-                let numTweets = rand.Next(1,5)
+                let rand1 = Random()
+                let rand2 = Random(rand1.Next())
+                let numTweets = max (rand1.Next(1,5) * numOfSub.[i]) 1
+                
                 for i in 1 .. numTweets do
-                    sendTweet client (tagSampler hashtags) 1
+                    sendTweet client (tagSampler hashtags) (rand2.Next(numClients))
             })
         |> Async.Parallel
         |> Async.RunSynchronously
         |> ignore
 
-        
+        (* 5. make all clients disconnected *)
+        myClients
+        |> Array.map (fun client -> 
+            async{
+                disconnect client
+            })
+        |> Async.Parallel
+        |> Async.RunSynchronously
+        |> ignore
         Console.ReadLine() |> ignore
 
+        printfn "----------------------------- Repeated Simulation ----------------------------"
+        printfn " maxCycle: %d" maxCycle
+        printfn "------------------------------------------------------------------------------"
+        globalTimer.Start()
+        let timer = new Timers.Timer(500.)
+        let event = Async.AwaitEvent (timer.Elapsed) |> Async.Ignore
+        let connections = Array.create (numClients+1) false
+        let mutable cycle = 0
+        timer.Start()
+        while cycle < maxCycle do
+            cycle <- cycle + 1
+            Async.RunSynchronously event
+
+            (* randomly select some clients connected *)
+            let toDisconnect =
+                arraySampler (getDisconnectedID connections) numOnline
+                |> List.map (fun clientID -> 
+                    connections.[clientID] <- true
+                    clientID
+                    )
+            //printfn "toDisconnect %A" toDisconnect
+            toDisconnect        
+            |> List.map (fun clientID -> 
+                async{
+                    connect myClients.[clientID-1]
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+            |> ignore
+            
+            (* randomly select some clients connected *)
+            let toConnect = 
+                arraySampler (getConnectedID connections) numOnline
+                |> List.map (fun clientID -> 
+                    connections.[clientID] <- false
+                    clientID
+                    )
+            //printfn "toConnect %A" toConnect
+            toConnect
+            |> List.map (fun clientID -> 
+                async{
+                    connect myClients.[clientID-1]
+                    connections.[clientID] <- false
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+            |> ignore
+
+            (* randomly select some clients to send a tweet *)
+            let rand = Random()
+            arraySampler (getConnectedID connections) numSendTweet
+            |> List.map (fun clientID -> 
+                    async{
+                        sendTweet myClients.[clientID-1] (tagSampler hashtags) (rand.Next())
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+            |> ignore 
+             
+            (* randomly select some clients to retweet *)
+            let rand = Random()
+            arraySampler (getConnectedID connections) numDoSome
+            |> List.map (fun clientID -> 
+                    async{
+                        retweet myClients.[clientID-1] (rand.Next(1,numClients))
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+            |> ignore 
+
+            (* randomly select some clients to query history*)
+            arraySampler (getConnectedID connections) numDoSome
+            |> List.map (fun clientID -> 
+                    async{
+                        queryHistory myClients.[clientID-1]
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+            |> ignore 
+             
+            (* randomly select some clients to query by mention*)
+            let rand = Random()
+            arraySampler (getConnectedID connections) numDoSome
+            |> List.map (fun clientID -> 
+                    async{
+                        queryByMention myClients.[clientID-1] (rand.Next(1,numClients))
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+            |> ignore 
+
+            (* randomly select some clients to query by tag*)
+            arraySampler (getConnectedID connections) numDoSome
+            |> List.map (fun clientID -> 
+                    async{
+                        queryByTag myClients.[clientID-1] (tagSampler hashtags)
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+            |> ignore 
+
+
+        globalTimer.Stop()
+        Console.ReadLine() |> ignore
+        printfn "Total time %A" globalTimer.Elapsed
+
+        
     with | :? IndexOutOfRangeException ->
             printfn "\n\n[Error] Wrong argument!!\n Plese use: \n1. dotnet run simulate\n2. dotnet run user\n\n"
 
