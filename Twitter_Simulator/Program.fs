@@ -144,69 +144,69 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     }
                     serverNode <! (Json.serialize regMsg)
                 
-                return! loop()
+                
             | "SendTweet" ->
                 if isOffline then
                     printfn "[%s] Send tweet failed, please connect to Twitter server first" nodeName
-                    return! loop()
+                else   
 
-                if isSimulation then
-                    serverNode <! message
-                else
-                    //TODO: modify this to customized JSON request
-                    (*
-                    let rnd = System.Random()
-                    let (tmpTweet:TweetInfo) = {
-                        ReqType = reqType ;
-                        UserID  = nodeID ;
-                        TweetID = (globalTimer.Elapsed.Ticks.ToString()) ;
-                        Time = (DateTime.Now) ;
-                        Content = "I am User" + (nodeID.ToString()) + ", I sends a Tweet!" ;
-                        Tag = "#Intro" ;
-                        Mention = rnd.Next(3) ;
-                        RetweetTimes = 0 ;
-                    }
-                    
-                    serverNode <! (Json.serialize tmpTweet)
-                    *)
-                    serverNode <! message
-                return! loop()
+                    if isSimulation then
+                        serverNode <! message
+                    else
+                        //TODO: modify this to customized JSON request
+                        (*
+                        let rnd = System.Random()
+                        let (tmpTweet:TweetInfo) = {
+                            ReqType = reqType ;
+                            UserID  = nodeID ;
+                            TweetID = (globalTimer.Elapsed.Ticks.ToString()) ;
+                            Time = (DateTime.Now) ;
+                            Content = "I am User" + (nodeID.ToString()) + ", I sends a Tweet!" ;
+                            Tag = "#Intro" ;
+                            Mention = rnd.Next(3) ;
+                            RetweetTimes = 0 ;
+                        }
+                        
+                        serverNode <! (Json.serialize tmpTweet)
+                        *)
+                        serverNode <! message
+
             | "Retweet" ->
                 if isOffline then
                     printfn "[%s] Send tweet failed, please connect to Twitter server first" nodeName
-                    return! loop()
-
-                if isSimulation then
-                    serverNode <! message
                 else
-                    //TODO: modify this to customized JSON request
-                    (* user could enter a tweetID or empty string (let server choose) as retweet ID *)
-                    let rnd = Random()
-                    let (tmpreweet:RetweetInfo) = {
-                        ReqType = reqType ;
-                        UserID  = nodeID ;
-                        TargetUserID =  1;//rnd.Next(3);
-                        RetweetID = "" ;
-                    }
-                    serverNode <! (Json.serialize tmpreweet)
-                return! loop()
+
+                    if isSimulation then
+                        serverNode <! message
+                    else
+                        //TODO: modify this to customized JSON request
+                        (* user could enter a tweetID or empty string (let server choose) as retweet ID *)
+                        let rnd = Random()
+                        let (tmpreweet:RetweetInfo) = {
+                            ReqType = reqType ;
+                            UserID  = nodeID ;
+                            TargetUserID =  1;//rnd.Next(3);
+                            RetweetID = "" ;
+                        }
+                        serverNode <! (Json.serialize tmpreweet)
+                
             | "Subscribe" ->
                 if isOffline then
                     printfn "[%s] Subscribe failed, please connect to Twitter server first" nodeName
-                    return! loop()
-
-                if isSimulation then
-                    serverNode <! message
                 else
-                    //TODO: modify this to customized JSON request
-                    let rnd = System.Random()           
-                    let (subMsg:SubInfo) = {
-                        ReqType = reqType ;
-                        UserID = nodeID ;
-                        PublisherID = rnd.Next(1,3);
-                    }
-                    serverNode <! (Json.serialize subMsg)
-                return! loop()
+
+                    if isSimulation then
+                        serverNode <! message
+                    else
+                        //TODO: modify this to customized JSON request
+                        let rnd = System.Random()           
+                        let (subMsg:SubInfo) = {
+                            ReqType = reqType ;
+                            UserID = nodeID ;
+                            PublisherID = rnd.Next(1,3);
+                        }
+                        serverNode <! (Json.serialize subMsg)
+
             | "Connect" ->
                 if isOnline then
                     if isSimulation then
@@ -219,22 +219,21 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             UserID = nodeID ;
                         }
                         serverNode <! (Json.serialize connectMsg)
-                    return! loop()
-
-                if isSimulation then
-                    let (connectMsg:ConnectInfo) = {
-                        ReqType = reqType ;
-                        UserID = nodeID ;
-                    }
-                    serverNode <! (Json.serialize connectMsg)
                 else
-                    //TODO: modify this to customized JSON request
-                    let (connectMsg:ConnectInfo) = {
-                        ReqType = reqType ;
-                        UserID = nodeID ;
-                    }
-                    serverNode <! (Json.serialize connectMsg)
-                return! loop()
+                    if isSimulation then
+                        let (connectMsg:ConnectInfo) = {
+                            ReqType = reqType ;
+                            UserID = nodeID ;
+                        }
+                        serverNode <! (Json.serialize connectMsg)
+                    else
+                        //TODO: modify this to customized JSON request
+                        let (connectMsg:ConnectInfo) = {
+                            ReqType = reqType ;
+                            UserID = nodeID ;
+                        }
+                        serverNode <! (Json.serialize connectMsg)
+
             | "Disconnect" ->
                 isOnline <- false
 
@@ -251,41 +250,39 @@ let clientActorNode (clientMailbox:Actor<string>) =
                         UserID = nodeID ;
                     }
                     serverNode <! (Json.serialize disconnectMsg)
-                return! loop()
+
             | "QueryHistory" | "QuerySubscribe" | "QueryMention" | "QueryTag" ->
                 if isOffline then
                     printfn "[%s] Query failed, please connect to Twitter server first" nodeName
-                    return! loop()
-                if isQuerying then
-                    printfn "[%s] Query failed, please wait until the last query is done" nodeName
-                    return! loop()
-
-                (* Set querying lock avoiding concurrent queries *)
-                isQuerying <- true
-
-                if reqType = "QueryTag" then
-                    if isSimulation then
-                        serverNode <! message
-                    else
-                        //TODO: modify this to customized JSON request
-                        let (queryMsg:QueryInfo) = {
-                            ReqType = reqType ;
-                            UserID = nodeID ;
-                            Tag = "#Intro" ;
-                        }
-                        serverNode <! (Json.serialize queryMsg)
                 else
-                    if isSimulation then
-                        serverNode <! message
+                    if isQuerying then
+                        printfn "[%s] Query failed, please wait until the last query is done" nodeName
                     else
-                        //TODO: modify this to customized JSON request
-                        let (queryMsg:QueryInfo) = {
-                            ReqType = reqType ;
-                            UserID = nodeID ;
-                            Tag = "" ;
-                        }
-                        serverNode <! (Json.serialize queryMsg)
-                return! loop()
+                        (* Set querying lock avoiding concurrent queries *)
+                        isQuerying <- true
+
+                        if reqType = "QueryTag" then
+                            if isSimulation then
+                                serverNode <! message
+                            else
+                                //TODO: modify this to customized JSON request
+                                let (queryMsg:QueryInfo) = {
+                                    ReqType = reqType ;
+                                    UserID = nodeID ;
+                                    Tag = "#Intro" ;
+                                }
+                                serverNode <! (Json.serialize queryMsg)
+                        else
+                            if isSimulation then
+                                serverNode <! message
+                            else
+                                //TODO: modify this to customized JSON request
+                                let (queryMsg:QueryInfo) = {
+                                    ReqType = reqType ;
+                                    UserID = nodeID ;
+                                    Tag = "" ;
+                                }
+                                serverNode <! (Json.serialize queryMsg)
             (* Deal with all reply messages  *)
             | "Reply" ->
                 let replyType = jsonMsg?Type.AsString()
@@ -380,13 +377,11 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     | _ ->
                         printfn "[%s] Unhandled Reply Message" nodeName
                         ()
-                return! loop()
 
 
             | _ ->
                 printfn "Client node \"%s\" received unknown message \"%s\"" nodeName reqType
                 Environment.Exit 1
-                return! loop()
          
         return! loop()
     }
@@ -524,7 +519,7 @@ let main argv =
         // ----------------------------------------------------------
         
         (* Setup *)
-        numClients <- 100
+        numClients <- 1000
         let hashtags = [|"#abc";"#123"; "#DOSP"; "#Twitter"; "#Akka"; "#Fsharp"|]
         (* 1. spawn clients *)
         let myClients = spawnClients numClients
@@ -579,8 +574,23 @@ let main argv =
         |> Async.RunSynchronously
         |> ignore
 
-
-
+        (*
+        let mutable lastTStamp = globalTimer.ElapsedMilliseconds
+        while true do
+            if (globalTimer.ElapsedMilliseconds) - lastTStamp  >= (1000 |> int64) then 
+                lastTStamp <- globalTimer.ElapsedMilliseconds
+                myClients
+                |> Array.map (fun client ->
+                    async{
+                        let rand = Random()
+                        let numTweets = rand.Next(1,5)
+                        for i in 1 .. numTweets do
+                            sendTweet client (tagSampler hashtags) 1
+                    })
+                |> Async.Parallel
+                |> Async.RunSynchronously
+                |> ignore
+        *)
         (*
         globalTimer.Start()
         printfn "%A@%A" globalTimer.Elapsed globalTimer.GetHashCode
@@ -667,4 +677,4 @@ let main argv =
             printfn "\n[Main] FormatException!\n"
 
 
-    0 // return an integer exit code
+    0 
