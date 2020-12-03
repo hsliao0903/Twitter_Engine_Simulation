@@ -57,6 +57,7 @@ type SubInfo = {
 type SubReply = {
     ReqType : string
     Type : string
+    TargetUserID : int
     Subscriber : int[]
     Publisher : int[]
 }
@@ -548,6 +549,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     let subReply:SubReply = {
                         ReqType = "Reply" ;
                         Type = "ShowSub" ;
+                        TargetUserID = userID ;
                         Subscriber = subMap.[userID].ToArray() ;
                         Publisher = [||] ;
                     }
@@ -556,6 +558,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     let subReply:SubReply = {
                         ReqType = "Reply" ;
                         Type = "ShowSub" ;
+                        TargetUserID = userID ;
                         Subscriber = [||] ;
                         Publisher = pubMap.[userID].ToArray() ;
                     }
@@ -564,6 +567,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     let subReply:SubReply = {
                         ReqType = "Reply" ;
                         Type = "ShowSub" ;
+                        TargetUserID = userID ;
                         Subscriber = subMap.[userID].ToArray() ;
                         Publisher = pubMap.[userID].ToArray() ;
                     }
@@ -582,59 +586,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
 [<EntryPoint>]
 let main argv =
     try
-        let asd = new Dictionary<string, List<int>>()
         
-        let tmpList = new List<int>()
-        tmpList.Add(4)
-        tmpList.Add(55)
-        tmpList.Add(666)
-        tmpList.Add(2)
-        asd.Add("a", tmpList)
-        asd.Add("b", tmpList)
-        let tmparr = Array.create  asd.Keys.Count ""
-        printfn "%A" tmparr
-        asd.Keys.CopyTo(tmparr,0)
-        printfn "%A %A" (asd.Count) (tmparr.[1])
-        
-        for entry in asd do
-            printfn "%A %A" entry.Key entry.Value
-
-        for entry in (tmpList.ToArray()) do
-            printfn "%i\n" entry
-        //printfn "%A" (tmpList.ToArray())
-            
-        let testReply:SubReply = {
-            ReqType = "Reply" ;
-            Type = "ShowSub" ;
-            Subscriber = tmpList.ToArray() ;
-            Publisher = tmpList.ToArray() ;
-        }
-        printfn "Test\n %A" testReply            
-        
-        let json = Json.serialize testReply
-        printfn "Test\n %s" json
-
-        
-
-        (*
-        printfn "%A" pubMap
-        updatePubSubDB 1 2
-        printfn "%i %A" (1) (pubMap.[1])
-        updatePubSubDB 1 31
-        updatePubSubDB 1 1
-        updatePubSubDB 1 3
-        updatePubSubDB 2 1
-        updatePubSubDB 2 31
-        printfn "%i %A" (1) (pubMap.[1])
-        pubMap.[1].Remove(4) |> ignore
-        printfn "%i %A" (1) (pubMap.[1])
-
-        updateTagDB "a" "adf"
-        updateTagDB "#a" "adfad"
-        updateTagDB "#ab" "adf"
-        //printfn "%s %A" ("#e") (tagMap.["#e"])
-        *)
-        //printfn "test: %A\n" (isValidUser 12)
         let serverActor = spawn system "TWServer" serverActorNode
         Console.ReadLine() |> ignore
     with | :? IndexOutOfRangeException ->

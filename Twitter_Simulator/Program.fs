@@ -59,6 +59,7 @@ type SubInfo = {
 type SubReply = {
     ReqType : string
     Type : string
+    TargetUserID : int
     Subscriber : int[]
     Publisher : int[]
 }
@@ -101,11 +102,23 @@ let serverNode = system.ActorSelection("akka.tcp://TwitterEngine@localhost:9001/
 let globalTimer = Stopwatch()
 let mutable isSimulation = false
 
+(* User Mode Connect/Register check *)
+type UserModeStatusCheck =
+| Success
+| Fail
+| Waiting
+| Timeout
+let mutable (isUserModeLoginSuccess:UserModeStatusCheck) = Waiting
 
 (* Client Node Actor*)
 let clientActorNode (clientMailbox:Actor<string>) =
-    let nodeName = "User" + clientMailbox.Self.Path.Name
-    let nodeID = (int) clientMailbox.Self.Path.Name
+    let mutable nodeName = "User" + clientMailbox.Self.Path.Name
+    let mutable nodeID = 
+        match (Int32.TryParse(clientMailbox.Self.Path.Name)) with
+        | (true, value) -> value
+        | (false, _) -> 0
+
+        
     let nodeSelfRef = clientMailbox.Self
     
     (* User have to connect (online) to server first before using twitter API, register API has no this kind of limit *)
@@ -135,14 +148,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     }
                     serverNode <! (Json.serialize regMsg)
                 else
-                    //TODO: modify this to customized JSON request
-                    let regMsg:RegJson = { 
-                        ReqType = reqType ; 
-                        UserID = nodeID ; 
-                        UserName = nodeName ; 
-                        PublicKey = Some (nodeName+"Key") ;
-                    }
-                    serverNode <! (Json.serialize regMsg)
+                    serverNode <! message
                 
                 
             | "SendTweet" ->
@@ -153,22 +159,6 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     if isSimulation then
                         serverNode <! message
                     else
-                        //TODO: modify this to customized JSON request
-                        (*
-                        let rnd = System.Random()
-                        let (tmpTweet:TweetInfo) = {
-                            ReqType = reqType ;
-                            UserID  = nodeID ;
-                            TweetID = (globalTimer.Elapsed.Ticks.ToString()) ;
-                            Time = (DateTime.Now) ;
-                            Content = "I am User" + (nodeID.ToString()) + ", I sends a Tweet!" ;
-                            Tag = "#Intro" ;
-                            Mention = rnd.Next(3) ;
-                            RetweetTimes = 0 ;
-                        }
-                        
-                        serverNode <! (Json.serialize tmpTweet)
-                        *)
                         serverNode <! message
 
             | "Retweet" ->
@@ -179,16 +169,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     if isSimulation then
                         serverNode <! message
                     else
-                        //TODO: modify this to customized JSON request
-                        (* user could enter a tweetID or empty string (let server choose) as retweet ID *)
-                        let rnd = Random()
-                        let (tmpreweet:RetweetInfo) = {
-                            ReqType = reqType ;
-                            UserID  = nodeID ;
-                            TargetUserID =  1;//rnd.Next(3);
-                            RetweetID = "" ;
-                        }
-                        serverNode <! (Json.serialize tmpreweet)
+                        serverNode <! message
                 
             | "Subscribe" ->
                 if isOffline then
@@ -198,14 +179,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     if isSimulation then
                         serverNode <! message
                     else
-                        //TODO: modify this to customized JSON request
-                        let rnd = System.Random()           
-                        let (subMsg:SubInfo) = {
-                            ReqType = reqType ;
-                            UserID = nodeID ;
-                            PublisherID = rnd.Next(1,3);
-                        }
-                        serverNode <! (Json.serialize subMsg)
+                        serverNode <! message
 
             | "Connect" ->
                 if isOnline then
@@ -213,12 +187,8 @@ let clientActorNode (clientMailbox:Actor<string>) =
                         let triggerQueryHistory = """{"ReqType":"QueryHistory"}"""
                         nodeSelfRef <! triggerQueryHistory
                     else
-                        //TODO: modify this to customized JSON request
-                        let (connectMsg:ConnectInfo) = {
-                            ReqType = reqType ;
-                            UserID = nodeID ;
-                        }
-                        serverNode <! (Json.serialize connectMsg)
+                        
+                        serverNode <! message
                 else
                     if isSimulation then
                         let (connectMsg:ConnectInfo) = {
@@ -227,12 +197,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                         }
                         serverNode <! (Json.serialize connectMsg)
                     else
-                        //TODO: modify this to customized JSON request
-                        let (connectMsg:ConnectInfo) = {
-                            ReqType = reqType ;
-                            UserID = nodeID ;
-                        }
-                        serverNode <! (Json.serialize connectMsg)
+                        serverNode <! message
 
             | "Disconnect" ->
                 isOnline <- false
@@ -244,12 +209,8 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     }
                     serverNode <! (Json.serialize disconnectMsg)
                 else
-                    //TODO: modify this to customized JSON request
-                    let (disconnectMsg:ConnectInfo) = {
-                        ReqType = reqType ;
-                        UserID = nodeID ;
-                    }
-                    serverNode <! (Json.serialize disconnectMsg)
+
+                    serverNode <! message
 
             | "QueryHistory" | "QuerySubscribe" | "QueryMention" | "QueryTag" ->
                 if isOffline then
@@ -265,24 +226,13 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             if isSimulation then
                                 serverNode <! message
                             else
-                                //TODO: modify this to customized JSON request
-                                let (queryMsg:QueryInfo) = {
-                                    ReqType = reqType ;
-                                    UserID = nodeID ;
-                                    Tag = "#Intro" ;
-                                }
-                                serverNode <! (Json.serialize queryMsg)
+                                serverNode <! message
                         else
                             if isSimulation then
                                 serverNode <! message
                             else
-                                //TODO: modify this to customized JSON request
-                                let (queryMsg:QueryInfo) = {
-                                    ReqType = reqType ;
-                                    UserID = nodeID ;
-                                    Tag = "" ;
-                                }
-                                serverNode <! (Json.serialize queryMsg)
+                                serverNode <! message
+
             (* Deal with all reply messages  *)
             | "Reply" ->
                 let replyType = jsonMsg?Type.AsString()
@@ -291,7 +241,10 @@ let clientActorNode (clientMailbox:Actor<string>) =
                         let status = jsonMsg?Status.AsString()
                         let registerUserID = jsonMsg?Desc.AsString() |> int
                         if status = "Success" then
-                            printfn "[%s] Successfully registered" nodeName
+                            if isSimulation then 
+                                printfn "[%s] Successfully registered" nodeName
+                            else
+                                isUserModeLoginSuccess <- Success
                             (* If the user successfully registered, connect to the server automatically *)
                             let (connectMsg:ConnectInfo) = {
                                 ReqType = "Connect" ;
@@ -301,27 +254,32 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             //let triggerConnect = """{"ReqType":"Connect"}"""
                             //nodeSelfRef <! triggerConnect
                         else
-                            printfn "[%s] Register failed!\n\t(this userID might have already registered before)" nodeName
-                        ()
+                            if isSimulation then 
+                                printfn "[%s] Register failed!\n\t(this userID might have already registered before)" nodeName
+                            else
+                                isUserModeLoginSuccess <- Fail
                     | "Subscribe" ->
                         let status = jsonMsg?Status.AsString()
                         if status = "Success" then
                             printfn "[%s] Subscirbe done!" nodeName
                         else
                             printfn "[%s] Subscribe failed!" nodeName
-                        ()
+
                     | "SendTweet" ->
                         let status = jsonMsg?Status.AsString()
                         if status = "Success" then
                             printfn "[%s] %s" nodeName (jsonMsg?Desc.AsString())
                         else
                             printfn "[%s] %s" nodeName (jsonMsg?Desc.AsString())
-                        ()
+
                     | "Connect" ->
                         let status = jsonMsg?Status.AsString()
                         if status = "Success" then
                             isOnline <- true
-                            printfn "[%s] User%s successfully connected to server" nodeName (jsonMsg?Desc.AsString())
+                            if isSimulation then 
+                                printfn "[%s] User%s successfully connected to server" nodeName (jsonMsg?Desc.AsString())
+                            else
+                                isUserModeLoginSuccess <- Success
                             (* Automatically query the history tweets of the connected user *)
                             let (queryMsg:QueryInfo) = {
                                 ReqType = "QueryHistory" ;
@@ -332,11 +290,17 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             //let triggerQueryHistory = """{"ReqType":"QueryHistory"}"""
                             //nodeSelfRef <! triggerQueryHistory
                         else
-                            printfn "[%s] Connection failed, %s" nodeName (jsonMsg?Desc.AsString())
-                        ()
+                            if isSimulation then 
+                                printfn "[%s] Connection failed, %s" nodeName (jsonMsg?Desc.AsString())
+                            else
+                                isUserModeLoginSuccess <- Fail
+
+
                     | "Disconnect" ->
-                        printfn "[%s] User%s disconnected from the server" nodeName (jsonMsg?Desc.AsString())
-                        ()
+                        if isSimulation then 
+                            printfn "[%s] User%s disconnected from the server" nodeName (jsonMsg?Desc.AsString())
+                        else
+                            isUserModeLoginSuccess <- Success
                     | "QueryHistory" ->
                         let status = jsonMsg?Status.AsString()
                         if status = "Success" then
@@ -347,7 +311,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             printfn "[%s] %s" nodeName (jsonMsg?Desc.AsString())
                         else
                             printfn "[%s] Something Wrong with Querying History" nodeName
-                        ()
+
                     | "ShowTweet" ->
                         (* Don't print out any tweet on console if it is in simulation mode *)
                         if not isSimulation then
@@ -358,12 +322,13 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             printfn "Author: User%i" (tweetInfo.UserID)
                             printfn "Content: {%s}\n%s  @User%i  Retweet times: %i" (tweetInfo.Content) (tweetInfo.Tag) (tweetInfo.Mention) (tweetInfo.RetweetTimes)
                             printfn "TID: %s" (tweetInfo.TweetID)
-                        ()
+
                     | "ShowSub" ->
                         if not isSimulation then
                             let subReplyInfo = (Json.deserialize<SubReply> message)
+                            
                             printfn "\n------------------------------------"
-                            printfn "Name: %s" nodeName
+                            printfn "Name: %s" ("User" + subReplyInfo.TargetUserID.ToString())
                             printf "Subscribe To: "
                             for id in subReplyInfo.Subscriber do
                                 printf "User%i " id
@@ -373,11 +338,16 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             printfn "\n"
                             printfn "[%s] Query Subscribe done" nodeName
                             isQuerying <- false
-                        ()
+
                     | _ ->
                         printfn "[%s] Unhandled Reply Message" nodeName
-                        ()
 
+            | "UserModeOn" ->
+                //printfn "\n\n\n\n%A\n\n\n\n" message
+                //let curName = jsonMsg?CurUserName.AsString()
+                let curUserID = jsonMsg?CurUserID.AsInteger()
+                nodeID <- curUserID
+                nodeName <- "User" + curUserID.ToString()
 
             | _ ->
                 printfn "Client node \"%s\" received unknown message \"%s\"" nodeName reqType
@@ -386,6 +356,160 @@ let clientActorNode (clientMailbox:Actor<string>) =
         return! loop()
     }
     loop()
+
+
+// ----------------------------------------------------------
+// User Mode for JSON request 
+// ----------------------------------------------------------
+
+let getUserInput (option:string) = 
+    let mutable keepPrompt = true
+    let mutable userInputStr = ""
+    match option with
+    | "int" ->
+        while keepPrompt do
+            printf "Enter a number: "
+            userInputStr <- Console.ReadLine()
+            match (Int32.TryParse(userInputStr)) with
+            | (true, _) -> (keepPrompt <- false)
+            | (false, _) ->  printfn "[Error] Invalid number"
+        userInputStr
+    | "string" ->
+        while keepPrompt do
+            printf "Enter a string: "
+            userInputStr <- Console.ReadLine()
+            match userInputStr with
+            | "" | "\n" | "\r" | "\r\n" | "\0" -> printfn "[Error] Invalid string"
+            | _ -> (keepPrompt <- false)
+        userInputStr
+    | "YesNo" ->
+        while keepPrompt do
+            printf "Enter yes/no: "
+            userInputStr <- Console.ReadLine()
+            match userInputStr.ToLower() with
+            | "yes" | "y" -> 
+                (keepPrompt <- false) 
+                userInputStr<-"yes"
+            | "no" | "n" ->
+                (keepPrompt <- false) 
+                userInputStr<-"no"
+            | _ -> printfn "[Error] Invalid input"
+        userInputStr
+    | _ ->
+        userInputStr                                
+    
+
+let genRegisterJSON (publicKey:string) =
+    
+    printfn "Pleae enter an unique number for \"UserID\": "
+    let userid = (int) (getUserInput "int")
+    printfn "Pleae enter a \"Name\": "
+    let username = (getUserInput "string")
+    let regJSON:RegJson = { 
+        ReqType = "Register" ; 
+        UserID =  userid ;
+        UserName = username ; 
+        PublicKey = Some (publicKey) ;
+    }
+    Json.serialize regJSON
+
+let genConnectDisconnectJSON (option:string, curUserID:int) = 
+    if option = "Connect" then
+        printfn "Please enter a number for \"UserID\": "
+        let userid = (int) (getUserInput "int")
+        let connectJSON:ConnectInfo = {
+            ReqType = "Connect" ;
+            UserID = userid ;
+        }
+        Json.serialize connectJSON
+    else
+        let connectJSON:ConnectInfo = {
+            ReqType = "Disconnect" ;
+            UserID = curUserID ;
+        }
+        Json.serialize connectJSON
+
+let genTweetJSON curUserID = 
+    let mutable tag = ""
+    let mutable mention = -1
+    printfn "Please enter the \"Content\" of your Tweet: "
+    let content = (getUserInput "string")
+    printfn "Would you like to add a \"Tag\"?"
+    if (getUserInput "YesNo") = "yes" then
+        printfn "Please enter a \"Tag\" (with #): "
+        tag <- (getUserInput "string")
+    printfn "Would you like to add a \"Mention\"?"
+    if (getUserInput "YesNo") = "yes" then
+        printfn "Please enter a \"UserID\" to mention (w/o @): "
+        mention <- (int) (getUserInput "int")
+
+    let (tweetJSON:TweetInfo) = {
+        ReqType = "SendTweet" ;
+        UserID  = curUserID ;
+        TweetID = "" ;
+        Time = (DateTime.Now) ;
+        Content = content ;
+        Tag = tag ;
+        Mention = mention ;
+        RetweetTimes = 0 ;
+    }
+    Json.serialize tweetJSON
+
+//subscribe
+let genSubscribeJSON curUserID = 
+    printfn "Please enter a \"UserID\" you would like to subscribe to: "
+    let subToUserID = (int) (getUserInput "int")
+    let (subJSON:SubInfo) = {
+        ReqType = "Subscribe" ;
+        UserID = curUserID ;
+        PublisherID = subToUserID;
+    }
+    Json.serialize subJSON
+//retweet
+let genRetweetJSON curUserID = 
+    printfn "Please enter a \"TweetID\" you would like to \"Retweet\": "
+    let retweetID = (getUserInput "string")
+    let (retweetJSON:RetweetInfo) = {
+        ReqType = "Retweet" ;
+        UserID  = curUserID ;
+        TargetUserID =  -1 ;
+        RetweetID = retweetID ;
+    }
+    Json.serialize retweetJSON
+//queryhistory
+//querytag
+//querymention
+//querysubscirbe
+let genQueryJSON (option:string) =
+    match option with
+    | "QueryTag" ->
+        printfn "Please enter the \"Tag\" you would like to query (with #): "
+        let tag = getUserInput "string"
+        let (queryTagJSON:QueryInfo) = {
+            ReqType = "QueryTag" ;
+            UserID = -1 ;
+            Tag = tag ;
+        }
+        Json.serialize queryTagJSON
+    | "QueryHistory" | "QueryMention" | "QuerySubscribe" ->
+        printfn "Please enter a \"UserID\" you would like to \"%s\":" option
+        let userid = (int) (getUserInput "int")
+        let (queryJSON:QueryInfo) = {
+            ReqType = option ;
+            UserID = userid ;
+            Tag = "" ;
+        }
+        Json.serialize queryJSON
+    | _ -> 
+        printfn "[Error] genQueryJSON function wrong input"
+        Environment.Exit 1
+        ""
+
+let getUserID (jsonStr:string) = 
+    let jsonMsg = JsonValue.Parse(jsonStr)
+    (jsonMsg?UserID.AsInteger())
+
+
 
 // ----------------------------------------------------------
 // Clients Manipulation
@@ -458,9 +582,70 @@ let tagSampler (hashtags: string []) =
     let rand () = random.Next(hashtags.Length-1)
     hashtags.[rand()]
 
+
+
+(* User Mode Prompt  *)
+let printBanner (printStr:string) =
+    printfn "\n----------------------------------"
+    printfn "%s" printStr
+    printfn "----------------------------------\n"
+
+let showPrompt option = 
+    match option with
+    | "loginFirst" ->
+        printfn "Now you are in \"USER\" mode, you could login as any other existing client or register a new User\n"
+        printfn "Please choose one of the commands listed below:"
+        printfn "1. register\t register a Twitter account"
+        printfn "2. connect\t login as a User"
+        printfn "3. exit\t\t terminate this program"
+    | "afterLogin" ->
+        printfn "\nYou already logged in a Client Termianl\n"
+        printfn "Please choose one of the commands listed below:"
+        printfn "1. sendtweet\t Post a Tweet for current log in User"
+        printfn "2. retweet\t Retweet a Tweet"
+        printfn "3. subscribe\t Subscribe to a User"
+        printfn "4. disconnect\t Disconnect/log out the current User"
+        printfn "5. history\t Query a User's History Tweets"
+        printfn "6. tag\t\t Query Tweets with a #Tag"
+        printfn "7. mention\t Query Tweets for a mentioned User"
+        printfn "8. Qsubscribe\t Query subscribe status for a User"
+        printfn "9. exit\t terminate this program"
+    | _ ->
+        ()
+
+let setTimeout _ =
+    isUserModeLoginSuccess <- Timeout
+
+
+let waitForServerResponse (timeout:float) =
+    (* timeout: seconds *)
+    let timer = new Timers.Timer(timeout*1000.0)
+    isUserModeLoginSuccess <- Waiting
+    timer.Elapsed.Add(setTimeout)
+    timer.Start()
+    printBanner "Waiting for server reply..."
+    while isUserModeLoginSuccess = Waiting do ()
+    timer.Close()
+
+
+
 [<EntryPoint>]
 let main argv =
     try
+        (* test for generating different Tweets
+        printfn "New QueryTag JSON\n%A" (genQueryJSON "QueryTag")
+        printfn "New QueryHistory JSON\n%A" (genQueryJSON "QueryHistory")
+        printfn "New QueryMention JSON\n%A" (genQueryJSON "QueryMention")
+        printfn "New QuerySubscribe JSON\n%A" (genQueryJSON "QuerySubscribe")
+        printfn "New subscribe JSON\n%A" (genSubscribeJDON 0)
+        printfn "New retweet JSON\n%A" (genRetweetJSON 0)
+        printfn "New Connect JSON\n%A" (genConnectDisconnectJSON ("Connect",-1))
+        printfn "New Disonnect JSON\n%A" (genConnectDisconnectJSON ("Disconnect",0))
+        printfn "New Register JSON:\n%A" (genRegisterJSON "key")
+        printfn "New Tweet JSOn:\n%A" (genTweetJSON 0)
+        Environment.Exit 1
+        *)
+
         globalTimer.Start()
         (* simulate / user / debug*)
         let programMode = argv.[0]
@@ -470,20 +655,108 @@ let main argv =
         let mutable percentActive = 0
         let mutable totalRequest = 2147483647
 
+    
+        
         if programMode = "user" then
-            printfn "Now you are Admin user, you could login as any other existing client or register new users own"
+            (* Create a terminal actor node for user mode *)
+            
+            let termianlRef = spawn system "TerminalNode" clientActorNode
+            let mutable curUserID = -1
+            let mutable curState= 0
             (* Prompt User for Simulator Usage *)
-            printfn "Please enter the commands listed below:"
-            printfn "1. exit: terminate this program"
-            while programMode = "user" do
-                let inputStr = Console.ReadLine()
-                match inputStr with
-                    | "1"| "Connect"->
-                        () 
-                    | "exit" ->
-                        Environment.Exit 1
-                    | _ ->
-                        ()
+            
+            (showPrompt "loginFirst")
+            while true do
+                (* First State, User have to register or connect(login) first *)
+                (* If successfully registered, *)
+                while curState = 0 do
+                    let inputStr = Console.ReadLine()
+                    match inputStr with
+                        | "1" | "register" ->
+                            let requestJSON = genRegisterJSON "key"
+                            let tmpuserID = getUserID requestJSON
+                            termianlRef <! requestJSON
+                            printfn "Send register JSON to server...\n%A" requestJSON
+                            waitForServerResponse (5.0)
+                            if isUserModeLoginSuccess = Success then
+                                printBanner ("Successfully registered and login as User"+ tmpuserID.ToString())
+                                termianlRef <! """{"ReqType":"UserModeOn", "CurUserID":"""+"\""+ tmpuserID.ToString() + "\"}"
+                                curUserID <- tmpuserID
+                                curState <- 1
+                                (showPrompt "afterLogin")
+                            else if isUserModeLoginSuccess = Fail then
+                                printBanner ("Faild to register for UserID: " + tmpuserID.ToString())
+                                (showPrompt "loginFirst")
+                            else
+                                printBanner ("Faild to register for UserID: " + tmpuserID.ToString() + "\n(Server no response, timeout occurs)")
+                                (showPrompt "loginFirst")
+
+                        | "2" | "connect" ->
+                            let requestJSON = genConnectDisconnectJSON ("Connect", -1)
+                            let tmpuserID = getUserID requestJSON
+                            termianlRef <! requestJSON
+                            printfn "Send Connect JSON to server...\n%A" requestJSON
+                            waitForServerResponse (5.0)
+                            if isUserModeLoginSuccess = Success then
+                                printBanner ("Successfully connected and login as User"+ tmpuserID.ToString())
+                                termianlRef <! """{"ReqType":"UserModeOn", "CurUserID":"""+"\""+ tmpuserID.ToString() + "\"}"
+                                curUserID <- tmpuserID
+                                curState <- 1
+                                (showPrompt "afterLogin")
+                            else if isUserModeLoginSuccess = Fail then
+                                printBanner ("Faild to connect and login for UserID: " + tmpuserID.ToString())
+                                (showPrompt "loginFirst")
+                            else
+                                printBanner ("Faild to connect and login for UserID: " + tmpuserID.ToString() + "\n(Server no response, timeout occurs)")
+                                (showPrompt "loginFirst")
+
+                        | "3" | "exit" | "ex" ->
+                            printfn "Exit the program, Bye!"
+                            Environment.Exit 1
+                        | _ ->
+                            (showPrompt "loginFirst")
+
+                while curState = 1 do
+                    let inputStr = Console.ReadLine()
+                    match inputStr with
+                        | "1"| "sendtweet" ->
+                            termianlRef <! genTweetJSON curUserID
+                            (showPrompt "afterLogin")
+                        | "2"| "retweet" -> 
+                            termianlRef <! genRetweetJSON curUserID
+                            (showPrompt "afterLogin")
+                        | "3"| "subscribe" | "sub" -> 
+                            termianlRef <! genSubscribeJSON curUserID
+                            (showPrompt "afterLogin")
+                        | "4" | "disconnect" ->
+                            termianlRef <! genConnectDisconnectJSON ("Disconnect", curUserID)
+                            waitForServerResponse (5.0)
+                            if isUserModeLoginSuccess = Success then
+                                printBanner ("Successfully diconnected and logout User"+ curUserID.ToString())
+                                curUserID <- -1
+                                curState <- 0
+                                (showPrompt "loginFirst")
+                            else
+                                printBanner ("Faild to disconnect and logout for UserID: " + curUserID.ToString() + "\n(Server no response, timeout occurs)")
+                                (showPrompt "afterLogin")
+                        | "5"| "history" -> 
+                            termianlRef <! genQueryJSON "QueryHistory"
+                            (showPrompt "afterLogin")
+                        | "6"| "tag" -> 
+                            termianlRef <! genQueryJSON "QueryTag"
+                            (showPrompt "afterLogin")
+                        | "7"| "mention" | "men" -> 
+                            termianlRef <! genQueryJSON "QueryMention"
+                            (showPrompt "afterLogin")
+                        | "8"| "Qsubscribe" | "Qsub" -> 
+                            termianlRef <! genQueryJSON "QuerySubscribe"
+                            (showPrompt "afterLogin")
+                        | "9" | "exit" | "ex" ->
+                            printfn "Exit the program, Bye!"
+                            Environment.Exit 1
+                        | _ ->
+                            (showPrompt "afterLogin")
+
         else if programMode = "simulate" then
             (* Set to simulation mode *)
             printfn "\n\n[Simulator Mode]\n"
@@ -503,6 +776,7 @@ let main argv =
             Console.ReadLine() |> ignore
             isSimulation <- true
         else if programMode = "debug" then
+            isSimulation <- true
             printfn "\n\n[Debug Mode]\n"
             //isSimulation <- true
         else
@@ -522,7 +796,9 @@ let main argv =
         numClients <- 1000
         let hashtags = [|"#abc";"#123"; "#DOSP"; "#Twitter"; "#Akka"; "#Fsharp"|]
         (* 1. spawn clients *)
+
         let myClients = spawnClients numClients
+
         //clientSampler myClients 5 |> List.iter(fun client -> printfn "%s" (client.Path.ToString()))
         //clientSampler myClients 5 |> List.iter(fun client -> printfn "%s" (client.Path.ToString()))
         
@@ -574,100 +850,7 @@ let main argv =
         |> Async.RunSynchronously
         |> ignore
 
-        (*
-        let mutable lastTStamp = globalTimer.ElapsedMilliseconds
-        while true do
-            if (globalTimer.ElapsedMilliseconds) - lastTStamp  >= (1000 |> int64) then 
-                lastTStamp <- globalTimer.ElapsedMilliseconds
-                myClients
-                |> Array.map (fun client ->
-                    async{
-                        let rand = Random()
-                        let numTweets = rand.Next(1,5)
-                        for i in 1 .. numTweets do
-                            sendTweet client (tagSampler hashtags) 1
-                    })
-                |> Async.Parallel
-                |> Async.RunSynchronously
-                |> ignore
-        *)
-        (*
-        globalTimer.Start()
-        printfn "%A@%A" globalTimer.Elapsed globalTimer.GetHashCode
-        printfn "%A" globalTimer.Elapsed
-        let asd = new Dictionary<string, TweetInfo>()
-        let tmpTweet:TweetInfo = {
-            ReqType = "SendTweet" ;
-            UserID  = 1 ;
-            //TweetID = DateTime.Now.ToString() + "9527" ;
-            TweetID = globalTimer.Elapsed.Ticks.ToString() ;
-            Time = DateTime.Now ;
-            Content = "hehehehet" ;
-            Tag = "#tagg" ;
-            Mention = 2 ;
-            RetweetTimes = 0;
-        }
-        asd.Add("a", tmpTweet)
-        let newTweet:TweetInfo = {
-            ReqType = "SendTweet" ;
-            UserID  = 1 ;
-            //TweetID = DateTime.Now.ToString() + "9527" ;
-            TweetID = globalTimer.Elapsed.Ticks.ToString() ;
-            Time = DateTime.Now ;
-            Content = "hehehehet" ;
-            Tag = "#tagg" ;
-            Mention = 2 ;
-            RetweetTimes = 0+1;
-        }
-        //asd.["a"] <- newTweet
-        let json = Json.serialize asd.["a"]
-        printfn "oewrj:\n %s\n" json
-        let aaa:TweetInfo = Json.deserialize<TweetInfo> json
-        printfn "%A" aaa
-        printfn "%u" globalTimer.Elapsed.Ticks
-
-        let clientActor = spawn system "1" clientActorNode
-        let clientActor2 = spawn system "2" clientActorNode
-        let triggerReg = """{"ReqType":"Register"}"""
-        let triggerSend = """{"ReqType":"SendTweet"}"""
-        let triggerSub = """{"ReqType":"Subscribe"}"""
-        let triggerCon = """{"ReqType":"Connect"}"""
-        let triggerDiscon = """{"ReqType":"Disconnect"}"""
-        let triggerQhis = """{"ReqType":"QueryHistory"}"""
-        let triggerQMen = """{"ReqType":"QueryMention"}"""
-        let triggerQtag = """{"ReqType":"QueryTag"}"""
-        let triggerQsub = """{"ReqType":"QuerySubscribe"}"""
-        let triggerRetweet = """{"ReqType":"Retweet"}"""
-
-        clientActor <! triggerReg
-        clientActor2 <! triggerReg
-        clientActor <! triggerCon
-        clientActor2 <! triggerCon
-        Console.ReadLine() |> ignore
-        //clientActor2 <! trigger
-        for i in 1 .. 3 do
-            clientActor <! triggerSub
-            clientActor2 <! triggerSub
-        clientActor <! triggerSend
-        Console.ReadLine() |> ignore
-        clientActor <! triggerRetweet  //retweet user1
-        for i in 1 .. 20 do
-            clientActor <! triggerSend
-            clientActor2 <! triggerRetweet
-        Console.ReadLine() |> ignore
-        clientActor <! triggerSend
-        Console.ReadLine() |> ignore
-        clientActor2 <! triggerQMen
-        Console.ReadLine() |> ignore
-        clientActor2 <! triggerQhis
-        Console.ReadLine() |> ignore
-        clientActor2 <! triggerQtag
-        Console.ReadLine() |> ignore
-        clientActor <! triggerQsub
-        Console.ReadLine() |> ignore
-        clientActor2 <! triggerQsub
         
-        *)
         Console.ReadLine() |> ignore
 
     with | :? IndexOutOfRangeException ->
