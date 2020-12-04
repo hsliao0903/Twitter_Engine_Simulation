@@ -121,9 +121,7 @@ let config =
         }"
 
 let system = System.create "TwitterEngine" config
-(* Global variable to count requests and tweets *)
-let mutable totalRequests = 0
-let mutable totalTweets = 0
+let mutable debugMode = false
 
 (* Helper Functions for access storage data structure *)
 
@@ -247,7 +245,8 @@ let assignTweetID (orgTweetInfo:TweetInfo) =
     let newTweetInfo:TweetInfo = {
         ReqType = orgTweetInfo.ReqType ;
         UserID  = orgTweetInfo.UserID ;
-        TweetID = totalTweets.ToString() ; // assign new tweetID according to total tweet counts
+        //TweetID = totalTweets.ToString() ; // assign new tweetID according to total tweet counts
+        TweetID = (tweetMap.Count + 1).ToString() ;
         Time = orgTweetInfo.Time ;
         Content = orgTweetInfo.Content ;
         Tag = orgTweetInfo.Tag ;
@@ -260,7 +259,6 @@ let assignTweetID (orgTweetInfo:TweetInfo) =
 let serverActorNode (serverMailbox:Actor<string>) =
     let nodeName = serverMailbox.Self.Path.Name
     
-
     // if user successfully connected (login), add the user to a set
     let mutable onlineUserCounter = 0
     let mutable onlineUserSet = Set.empty
@@ -279,23 +277,45 @@ let serverActorNode (serverMailbox:Actor<string>) =
             0
         else
             0
+    (* Server status variables to count requests and tweets *)
+    let mutable totalRequests = 0
+    let mutable maxThrougput = 0
+    //let mutable totalTweets = 0
+    let mutable totalRequestsLastSecond = 0
+    
+    let showServerStatus _ =
+        let curThruputThisSecond = (totalRequests - totalRequestsLastSecond)
+        maxThrougput <- Math.Max(curThruputThisSecond, maxThrougput)
+        printfn "\n---------- Server Status -----------------"
+        printfn "Total Requests: %i" totalRequests
+        printfn "Request Throughput: %i" curThruputThisSecond
+        printfn "Max Throughput: %i" maxThrougput
+        printfn "Total Tweets in DB: %i" (tweetMap.Keys.Count)
+        printfn "Total Registered Users: %i" (regMap.Keys.Count)
+        printfn "Online Users: %i" (onlineUserSet.Count)
+        printfn "----------------------------------\n"
+        totalRequestsLastSecond <- totalRequests
 
+    let timer = new Timers.Timer(1000.0)
+    timer.Elapsed.Add(showServerStatus)
+    timer.Start()
+
+    (* Server Actor Function *)
     let rec loop() = actor {
         let! (message: string) = serverMailbox.Receive()
         let  sender = serverMailbox.Sender()
         let  jsonMsg = JsonValue.Parse(message)
         let  reqType = jsonMsg?ReqType.AsString()
         let  userID = jsonMsg?UserID.AsInteger()
-        //printfn "%A" sender.Path
         totalRequests <- totalRequests + 1
-        printfn "\n[%s] Receive message %A \n totalRequests: %i totalTweets: %i totalUsers: %i" nodeName message totalRequests totalTweets regMap.Keys.Count
 
         match reqType with
             | "Register" ->
                 (* Save the register information into data strucute *)
                 (* Check if the userID has already registered before *)
                 let regMsg = (Json.deserialize<RegInfo> message)
-                printfn "[%s] Received Register Request from User%s" nodeName (sender.Path.Name)
+                if debugMode then
+                    printfn "[%s] Received Register Request from User%s" nodeName (sender.Path.Name)
                 
                 let status = updateRegDB regMsg
                 let reply:ReplyInfo = { 
@@ -311,11 +331,12 @@ let serverActorNode (serverMailbox:Actor<string>) =
 
                 //return! loop()
             | "SendTweet" ->
-                totalTweets <- totalTweets + 1
+                //totalTweets <- totalTweets + 1
                 let orgtweetInfo = (Json.deserialize<TweetInfo> message)
                 let tweetInfo = assignTweetID orgtweetInfo
-                printfn "[%s] Received a Tweet reqeust from User%s" nodeName (sender.Path.Name)
-                printfn "%A" tweetInfo
+                if debugMode then
+                    printfn "[%s] Received a Tweet reqeust from User%s" nodeName (sender.Path.Name)
+                    printfn "%A" tweetInfo
                 (* Store the informations for this tweet *)
                 (* Check if the userID has already registered? if not, don't accept this Tweet *)
                 if (isValidUser tweetInfo.UserID) then
@@ -582,10 +603,18 @@ let serverActorNode (serverMailbox:Actor<string>) =
     }
     loop()
 
-
+let mutable a = 1
 [<EntryPoint>]
 let main argv =
     try
+        (* Check if the parameter is "debug" or not, if yes, set the Server to debug mode, to get more ouptputs of requests *)
+        if argv.Length <> 0 then
+            debugMode <- 
+                match (argv.[0]) with
+                | "debug" -> true
+                | _ -> false
+        
+
         
         let serverActor = spawn system "TWServer" serverActorNode
         Console.ReadLine() |> ignore
