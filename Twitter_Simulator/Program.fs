@@ -606,6 +606,8 @@ let getNumOfSub (numClients: int)=
         [1.0 .. (float) numClients] 
         |> List.map (fun x -> (float) numClients/(x*constant) |> Math.Round |> int)
         |> List.toArray
+    //printfn "res\n%A" res
+    //Environment.Exit 1
     shuffleList (Random()) res             
 
 let tagSampler (hashtags: string []) = 
@@ -650,7 +652,7 @@ let showPrompt option =
         printfn "6. tag\t\t Query Tweets with a #Tag"
         printfn "7. mention\t Query Tweets for a mentioned User"
         printfn "8. Qsubscribe\t Query subscribe status for a User"
-        printfn "9. exit\t terminate this program"
+        printfn "9. exit\t\t terminate this program"
     | _ ->
         ()
 
@@ -846,7 +848,7 @@ let main argv =
         let propOnline = 0.6
         let propSendTweet = 0.5
         let propRetweet = 0.3
-        let maxCycle = 500
+        let maxCycle = 100000000
         let numOnline =  propOnline * (float)numClients |> int
         let numSendTweet = (float)numOnline * propSendTweet |> int
         let numDoSome = (float) numOnline * propRetweet |> int
@@ -920,7 +922,7 @@ let main argv =
         printfn " maxCycle: %d" maxCycle
         printfn "------------------------------------------------------------------------------"
         globalTimer.Start()
-        let timer = new Timers.Timer(500.)
+        let timer = new Timers.Timer(1000.)
         let event = Async.AwaitEvent (timer.Elapsed) |> Async.Ignore
         let connections = Array.create (numClients+1) false
         let mutable cycle = 0
