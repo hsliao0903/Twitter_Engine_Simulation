@@ -125,15 +125,26 @@ let mutable debugMode = false
 let mutable showStatusMode = 0
 let globalTimer = Stopwatch()
 
+(* Spawn Actors Helpter Function *)
+let actorOfSink f = actorOf f
+
 (* Helper Functions for access storage data structure *)
 
 let isValidUser userID = 
     (regMap.ContainsKey(userID)) 
 
+ 
+
+let regMapAdder (userID, info:RegInfo) =
+    regMap.Add(userID, info)
+let regMapAdderActorRef =
+    actorOfSink regMapAdder |> spawn system "regMap-Adder"
+
 let updateRegDB (newInfo:RegInfo) =
     let userID = newInfo.UserID
     if not (regMap.ContainsKey(userID)) then
-        regMap.Add(userID, newInfo)
+        regMapAdderActorRef <! (userID, newInfo)
+        //regMap.Add(userID, newInfo)
         "Success"
     else
         "Fail"
@@ -162,6 +173,7 @@ let updateTagDB tag tweetID =
             (tagMap.[tag]).Add(tweetID)
 
 let updatePubSubDB publisherID subscriberID = 
+    let mutable isFail = false
     (* Don't allow users to subscribe themselves *)
     if publisherID <> subscriberID && (isValidUser publisherID) && (isValidUser subscriberID) then
         (* pubMap:  Publisher : list of subscribers  *)
@@ -172,6 +184,8 @@ let updatePubSubDB publisherID subscriberID =
         else
             if not ((pubMap.[publisherID]).Contains(subscriberID)) then
                 (pubMap.[publisherID]).Add(subscriberID)
+            else
+                isFail <- true
 
         (* pubMap:  Subscriber : list of Publishers *)
         if not (subMap.ContainsKey(subscriberID)) then
@@ -181,7 +195,12 @@ let updatePubSubDB publisherID subscriberID =
         else
             if not ((subMap.[subscriberID]).Contains(publisherID)) then
                 (subMap.[subscriberID]).Add(publisherID)
-        "Success"
+            else
+                isFail <- true
+        if isFail then
+            "Fail"
+        else
+            "Success"
     else
         "Fail"
 
@@ -262,19 +281,17 @@ let serverActorNode (serverMailbox:Actor<string>) =
     let nodeName = serverMailbox.Self.Path.Name
     
     // if user successfully connected (login), add the user to a set
-    let mutable onlineUserCounter = 0
+    let mutable msgProcessed = 0
     let mutable onlineUserSet = Set.empty
     let updateOnlineUserDB userID option = 
         let isConnected = onlineUserSet.Contains(userID)
         if option = "connect" && not isConnected then
             if isValidUser userID then
-                onlineUserCounter <- onlineUserCounter + 1
                 onlineUserSet <- onlineUserSet.Add(userID)
                 0
             else
                 -1
         else if option = "disconnect" && isConnected then
-            onlineUserCounter <- onlineUserCounter - 1
             onlineUserSet <- onlineUserSet.Remove(userID)
             0
         else
@@ -282,22 +299,20 @@ let serverActorNode (serverMailbox:Actor<string>) =
     (* Server status variables to count requests and tweets *)
     let mutable totalRequests = 0
     let mutable maxThrougput = 0
-    //let mutable totalTweets = 0
-    let mutable totalRequestsLastSecond = 0
     
     let showServerStatus _ =
-        if showStatusMode = 0 then
-            let curThruputThisSecond = (totalRequests - totalRequestsLastSecond)
-            maxThrougput <- Math.Max(curThruputThisSecond, maxThrougput)
+        totalRequests <- totalRequests + msgProcessed
+        maxThrougput <- Math.Max(maxThrougput, msgProcessed)
+        if showStatusMode = 0 then    
             printfn "\n---------- Server Status ---------"
-            printfn "Total Requests: %i" totalRequests
-            printfn "Request Throughput: %i" curThruputThisSecond
-            printfn "Max Throughput: %i" maxThrougput
+            printfn "Total Processed Requests: %i" totalRequests
+            printfn "Request Porcessed Last Second: %i" msgProcessed
+            printfn "Max Server Throughput: %i" maxThrougput   //message processed per second
             printfn "Total Tweets in DB: %i" (tweetMap.Keys.Count)
             printfn "Total Registered Users: %i" (regMap.Keys.Count)
             printfn "Online Users: %i" (onlineUserSet.Count)
             printfn "----------------------------------\n"
-            totalRequestsLastSecond <- totalRequests
+        msgProcessed <- 0
 
     let timer = new Timers.Timer(1000.0)
     timer.Elapsed.Add(showServerStatus)
@@ -311,7 +326,6 @@ let serverActorNode (serverMailbox:Actor<string>) =
         let  jsonMsg = JsonValue.Parse(message)
         let  reqType = jsonMsg?ReqType.AsString()
         let  userID = jsonMsg?UserID.AsInteger()
-        totalRequests <- totalRequests + 1
 
         match reqType with
             | "Register" ->
@@ -332,8 +346,6 @@ let serverActorNode (serverMailbox:Actor<string>) =
                 (* Reply for the register satus *)
                 sender <!  (Json.serialize reply)
 
-
-                //return! loop()
             | "SendTweet" ->
                 //totalTweets <- totalTweets + 1
                 let orgtweetInfo = (Json.deserialize<TweetInfo> message)
@@ -361,7 +373,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  Some "The user should be registered before sending a Tweet" ;
                     }
                     sender <! (Json.serialize reply)
-                //return! loop()
+
             | "Retweet" ->
                 let retweetID = jsonMsg?RetweetID.AsString()
                 let tUserID = jsonMsg?TargetUserID.AsInteger()
@@ -425,7 +437,6 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  None ;
                 }
                 sender <! (Json.serialize reply)
-                //return! loop()
 
             | "Connect" ->
                 let userID = jsonMsg?UserID.AsInteger()
@@ -448,7 +459,6 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     }
                     sender <! (Json.serialize reply)
                 
-                //return! loop()
             | "Disconnect" ->
                 
                 (* if disconnected, user cannot query or send tweet *)
@@ -460,7 +470,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     Desc =   Some (userID.ToString()) ;
                 }
                 sender <! (Json.serialize reply)
-                //return! loop()
+
             | "QueryHistory" ->
                     
                 (* No any Tweet in history *)
@@ -493,7 +503,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  Some "Query history Tweets done" ;
                     }
                     sender <! (Json.serialize reply)       
-                //return! loop()
+
             | "QueryMention" ->
                 (* No any Tweet that mentioned User *)
                 if not (mentionMap.ContainsKey(userID)) then
@@ -525,7 +535,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  Some "Query mentioned Tweets done" ;
                     }
                     sender <! (Json.serialize reply)       
-                //return! loop()
+
             | "QueryTag" ->
                 let tag = jsonMsg?Tag.AsString()
                 (* No any Tweet that mentioned User *)
@@ -558,7 +568,7 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Desc =  Some ("Query Tweets with "+tag+ " done") ;
                     }
                     sender <! (Json.serialize reply)       
-                //return! loop()
+
             | "QuerySubscribe" ->
                 
                 (* the user doesn't have any publisher subscripver information *)
@@ -597,12 +607,13 @@ let serverActorNode (serverMailbox:Actor<string>) =
                         Publisher = pubMap.[userID].ToArray() ;
                     }
                     sender <! (Json.serialize subReply)                    
-                //return! loop()
+
             | _ ->
                 printfn "client \"%s\" received unknown message \"%s\"" nodeName reqType
                 Environment.Exit 1
-                //return! loop()
-         
+
+        totalRequests <- totalRequests + 1
+        msgProcessed <- msgProcessed + 1
         return! loop()
     }
     loop()
@@ -681,7 +692,7 @@ let main argv =
                     printfn "Top Subscriber: %i (%i subscribes)" topSubscriber (subMap.[topSubscriber].Count)
                 printfn "------------------------------------------\n"
         
-        let timer2 = new Timers.Timer(3000.0)
+        let timer2 = new Timers.Timer(1000.0)
         timer2.Elapsed.Add(showDBStatus)
         timer2.Start()
         
