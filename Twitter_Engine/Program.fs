@@ -122,6 +122,8 @@ let config =
 
 let system = System.create "TwitterEngine" config
 let mutable debugMode = false
+let mutable showStatusMode = 0
+let globalTimer = Stopwatch()
 
 (* Helper Functions for access storage data structure *)
 
@@ -284,21 +286,23 @@ let serverActorNode (serverMailbox:Actor<string>) =
     let mutable totalRequestsLastSecond = 0
     
     let showServerStatus _ =
-        let curThruputThisSecond = (totalRequests - totalRequestsLastSecond)
-        maxThrougput <- Math.Max(curThruputThisSecond, maxThrougput)
-        printfn "\n---------- Server Status -----------------"
-        printfn "Total Requests: %i" totalRequests
-        printfn "Request Throughput: %i" curThruputThisSecond
-        printfn "Max Throughput: %i" maxThrougput
-        printfn "Total Tweets in DB: %i" (tweetMap.Keys.Count)
-        printfn "Total Registered Users: %i" (regMap.Keys.Count)
-        printfn "Online Users: %i" (onlineUserSet.Count)
-        printfn "----------------------------------\n"
-        totalRequestsLastSecond <- totalRequests
+        if showStatusMode = 0 then
+            let curThruputThisSecond = (totalRequests - totalRequestsLastSecond)
+            maxThrougput <- Math.Max(curThruputThisSecond, maxThrougput)
+            printfn "\n---------- Server Status ---------"
+            printfn "Total Requests: %i" totalRequests
+            printfn "Request Throughput: %i" curThruputThisSecond
+            printfn "Max Throughput: %i" maxThrougput
+            printfn "Total Tweets in DB: %i" (tweetMap.Keys.Count)
+            printfn "Total Registered Users: %i" (regMap.Keys.Count)
+            printfn "Online Users: %i" (onlineUserSet.Count)
+            printfn "----------------------------------\n"
+            totalRequestsLastSecond <- totalRequests
 
     let timer = new Timers.Timer(1000.0)
     timer.Elapsed.Add(showServerStatus)
     timer.Start()
+
 
     (* Server Actor Function *)
     let rec loop() = actor {
@@ -613,11 +617,93 @@ let main argv =
                 match (argv.[0]) with
                 | "debug" -> true
                 | _ -> false
-        
-
+       
         
         let serverActor = spawn system "TWServer" serverActorNode
-        Console.ReadLine() |> ignore
+        globalTimer.Start()
+        // --------------------------- DB collections ---------------------------
+        // regMap tweetMap historyMap tagMap mentionMap subMap pubMap
+        //-----------------------------------------------------------------------
+        let getTopID (subpubMap:Dictionary<int, List<int>>) = 
+            let mutable maxCount = 0
+            let mutable topID = -1 
+            for entry in subpubMap do
+                if entry.Value.Count > maxCount then
+                    maxCount <- (entry.Value.Count)
+                    topID <- entry.Key
+            topID   
+        let getTopTag (tagDB:Dictionary<string, List<string>>) =
+            let mutable maxCount = 0
+            let mutable topTag = ""
+            for entry in tagDB do
+                if entry.Value.Count > maxCount then
+                    maxCount <- (entry.Value.Count)
+                    topTag <- entry.Key
+            topTag       
+        let getTopMention (mentionDB:Dictionary<int, List<string>>) =
+            let mutable maxCount = 0
+            let mutable topMen = -1
+            for entry in mentionMap do
+                if entry.Value.Count > maxCount then
+                    maxCount <- (entry.Value.Count)
+                    topMen <- entry.Key
+            topMen
+        let getTopRetweet (tweetDB:Dictionary<string, TweetInfo>) =
+            let mutable maxCount = 0
+            let mutable topRetweet = ""
+            for entry in tweetMap do
+                if entry.Value.RetweetTimes > maxCount then
+                    maxCount <- (entry.Value.RetweetTimes)
+                    topRetweet <- entry.Key
+            topRetweet
+
+        let showDBStatus _ =
+            if showStatusMode = 1 then
+                let topPublisher = getTopID pubMap
+                let topSubscriber = getTopID subMap
+                let topTag = getTopTag tagMap
+                let topMention = getTopMention mentionMap
+                let topRetweet = getTopRetweet tweetMap
+                        
+                printfn "\n---------- DB Status ---------------------"
+                printfn "Total Registered Users: %i" (regMap.Keys.Count)
+                printfn "Total Tweets in DB: %i" (tweetMap.Keys.Count)
+                if topRetweet <> "" then
+                    printfn "Top retweeted Tweet: %s (%i times)" topRetweet (tweetMap.[topRetweet].RetweetTimes)
+                if topTag <> "" then
+                    printfn "Total different kinds of Tags: %i" (tagMap.Keys.Count)
+                    printfn "Top used Tag: %s (%i times)" topTag (tagMap.[topTag].Count)
+                if topMention >= 0 then
+                    printfn "Top mentioned User: User%i (%i times)" topMention (mentionMap.[topMention].Count)
+                if topPublisher >= 0 then
+                    printfn "Top Publisher: %i (%i subscribers)" topPublisher (pubMap.[topPublisher].Count)
+                if topSubscriber >= 0 then
+                    printfn "Top Subscriber: %i (%i subscribes)" topSubscriber (subMap.[topSubscriber].Count)
+                printfn "------------------------------------------\n"
+        
+        let timer2 = new Timers.Timer(3000.0)
+        timer2.Elapsed.Add(showDBStatus)
+        timer2.Start()
+        
+        (* Let user press any key to change the mode for showing status *)
+        (* showDB -> showServer -> showDB  *)
+        printfn "\n\n-------------------------------------------"
+        printfn "Press any key to switch the ouput status..."
+        printfn "Enter \"exit\" to terminate this program..."
+        printfn "-------------------------------------------\n"
+        while true do
+            let userInputStr = Console.ReadLine()
+            match userInputStr with
+            | "exit" | "ex" | "quit" ->
+                globalTimer.Stop()
+                printfn "\n\nTwitter Engine Terminated...\nTotal running time: %A\n" (globalTimer.Elapsed)
+                Environment.Exit 1
+            | _ ->
+                if showStatusMode = 0 then
+                    showStatusMode <- 1
+                else
+                    showStatusMode <- 0
+
     with | :? IndexOutOfRangeException ->
             printfn "\n[Main] Incorrect Inputs or IndexOutOfRangeException!\n"
 
