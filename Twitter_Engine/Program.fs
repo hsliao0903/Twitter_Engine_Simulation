@@ -6,95 +6,16 @@ open System.Collections.Generic
 open System.Text
 open Akka.Actor
 open Akka.FSharp
-open Message
+open ActorOFDB
+open TwitterServerCollections
+
+
 
 (* For Json Libraries *)
 open FSharp.Data
 open FSharp.Data.JsonExtensions
 open FSharp.Json
 
-
-(* Different API request JSON message structures *)
-
-type ReplyInfo = {
-    ReqType : string
-    Type : string
-    Status : string
-    Desc : string option
-}
-
-type RegInfo = {
-    ReqType : string
-    UserID : int
-    UserName : string
-    PublicKey : string option
-}
-
-type TweetInfo = {
-    ReqType : string
-    UserID : int
-    TweetID : string
-    Time : DateTime
-    Content : string
-    Tag : string
-    Mention : int
-    RetweetTimes : int
-}
-
-type TweetReply = {
-    ReqType : string
-    Type : string
-    Status : int
-    TweetInfo : TweetInfo
-}
-
-type SubInfo = {
-    ReqType : string
-    UserID : int 
-    PublisherID : int
-}
-
-type SubReply = {
-    ReqType : string
-    Type : string
-    TargetUserID : int
-    Subscriber : int[]
-    Publisher : int[]
-}
-
-type ConnectInfo = {
-    ReqType : string
-    UserID : int
-}
-
-type QueryInfo = {
-    ReqType : string
-    UserID : int
-    Tag : string
-}
-
-type RetweetInfo = {
-    ReqType: string
-    UserID : int
-    TargetUserID : int
-    RetweetID : string
-}
-
-(* Data Collections to Store Client informations *)
-(* userID, info of user registration *)
-let regMap = new Dictionary<int, RegInfo>()
-(* tweetID, info of the tweet *)
-let tweetMap = new Dictionary<string, TweetInfo>()
-(* userID, list of tweetID*)
-let historyMap = new Dictionary<int, List<string>>()
-(* tag, list of tweetID *)
-let tagMap = new Dictionary<string, List<string>>()
-(* userID, list of subsriber's userID *)
-let pubMap = new Dictionary<int, List<int>>()
-(* userID, list of publisher's userID *)
-let subMap = new Dictionary<int, List<int>>()
-(* userID, list of tweetID that mentions the user *)
-let mentionMap = new Dictionary<int, List<string>>()
 
 
 (* Actor System Configuration Settings (Server) Side) *)
@@ -121,6 +42,15 @@ let config =
         }"
 
 let system = System.create "TwitterEngine" config
+
+let numQueryWorker = 1000
+let spawnQueryActors (clientNum: int) = 
+    [1 .. clientNum]
+    |> List.map (fun id -> spawn system ("Q"+id.ToString()) queryActorNode)
+    |> List.toArray
+let myQueryWorker = spawnQueryActors numQueryWorker
+
+//let dbActorRef = spawn system "db1" queryActorNode
 let mutable debugMode = false
 let mutable showStatusMode = 0
 let globalTimer = Stopwatch()
@@ -483,26 +413,30 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     }
                     sender <! (Json.serialize reply)
                 else
-                    (* send back all the tweets *)
-                    let mutable tweetCount = 0
-                    for tweetID in (historyMap.[userID]) do
-                        tweetCount <- tweetCount + 1
-                        let tweetReply:TweetReply = {
-                            ReqType = "Reply" ;
-                            Type = "ShowTweet" ;
-                            Status = tweetCount ;
-                            TweetInfo = tweetMap.[tweetID] ;
-                        }
-                        sender <! (Json.serialize tweetReply)
+                    let rnd = Random()
+                    let rndIdx = rnd.Next(numQueryWorker)
+                    //let a = historyMap.[userID].ToArray()
+                    myQueryWorker.[rndIdx] <! QueryHistory (message, sender, historyMap.[userID].ToArray())
+                    // (* send back all the tweets *)
+                    // let mutable tweetCount = 0
+                    // for tweetID in (historyMap.[userID]) do
+                    //     tweetCount <- tweetCount + 1
+                    //     let tweetReply:TweetReply = {
+                    //         ReqType = "Reply" ;
+                    //         Type = "ShowTweet" ;
+                    //         Status = tweetCount ;
+                    //         TweetInfo = tweetMap.[tweetID] ;
+                    //     }
+                    //     sender <! (Json.serialize tweetReply)
 
-                    (* After sending ball all the history tweet, reply to sender *)
-                    let (reply:ReplyInfo) = { 
-                        ReqType = "Reply" ;
-                        Type = reqType ;
-                        Status =  "Success" ;
-                        Desc =  Some "Query history Tweets done" ;
-                    }
-                    sender <! (Json.serialize reply)       
+                    // (* After sending ball all the history tweet, reply to sender *)
+                    // let (reply:ReplyInfo) = { 
+                    //     ReqType = "Reply" ;
+                    //     Type = reqType ;
+                    //     Status =  "Success" ;
+                    //     Desc =  Some "Query history Tweets done" ;
+                    // }
+                    // sender <! (Json.serialize reply)       
 
             | "QueryMention" ->
                 (* No any Tweet that mentioned User *)
@@ -515,26 +449,29 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     }
                     sender <! (Json.serialize reply)
                 else
-                    (* send back all mentioned tweets *)
-                    let mutable tweetCount = 0
-                    for tweetID in (mentionMap.[userID]) do
-                        tweetCount <- tweetCount + 1
-                        let tweetReply:TweetReply = {
-                            ReqType = "Reply" ;
-                            Type = "ShowTweet" ;
-                            Status = tweetCount ;
-                            TweetInfo = tweetMap.[tweetID] ;
-                        }
-                        sender <! (Json.serialize tweetReply)
+                    let rnd = Random()
+                    let rndIdx = rnd.Next(numQueryWorker)
+                    myQueryWorker.[rndIdx] <! QueryMention (message, sender, mentionMap.[userID].ToArray())
+                    // (* send back all mentioned tweets *)
+                    // let mutable tweetCount = 0
+                    // for tweetID in (mentionMap.[userID]) do
+                    //     tweetCount <- tweetCount + 1
+                    //     let tweetReply:TweetReply = {
+                    //         ReqType = "Reply" ;
+                    //         Type = "ShowTweet" ;
+                    //         Status = tweetCount ;
+                    //         TweetInfo = tweetMap.[tweetID] ;
+                    //     }
+                    //     sender <! (Json.serialize tweetReply)
 
-                    (* After sending ball all the history tweet, reply to sender *)
-                    let (reply:ReplyInfo) = { 
-                        ReqType = "Reply" ;
-                        Type = "QueryHistory" ;
-                        Status =  "Success" ;
-                        Desc =  Some "Query mentioned Tweets done" ;
-                    }
-                    sender <! (Json.serialize reply)       
+                    // (* After sending ball all the history tweet, reply to sender *)
+                    // let (reply:ReplyInfo) = { 
+                    //     ReqType = "Reply" ;
+                    //     Type = "QueryHistory" ;
+                    //     Status =  "Success" ;
+                    //     Desc =  Some "Query mentioned Tweets done" ;
+                    // }
+                    // sender <! (Json.serialize reply)       
 
             | "QueryTag" ->
                 let tag = jsonMsg?Tag.AsString()
@@ -548,26 +485,29 @@ let serverActorNode (serverMailbox:Actor<string>) =
                     }
                     sender <! (Json.serialize reply)
                 else
-                    (* send back all mentioned tweets *)
-                    let mutable tweetCount = 0
-                    for tweetID in (tagMap.[tag]) do
-                        tweetCount <- tweetCount + 1
-                        let tweetReply:TweetReply = {
-                            ReqType = "Reply" ;
-                            Type = "ShowTweet" ;
-                            Status = tweetCount ;
-                            TweetInfo = tweetMap.[tweetID] ;
-                        }
-                        sender <! (Json.serialize tweetReply)
+                    let rnd = Random()
+                    let rndIdx = rnd.Next(numQueryWorker)
+                    myQueryWorker.[rndIdx] <! QueryTag (message, sender, tagMap.[tag].ToArray())
+                    // (* send back all mentioned tweets *)
+                    // let mutable tweetCount = 0
+                    // for tweetID in (tagMap.[tag]) do
+                    //     tweetCount <- tweetCount + 1
+                    //     let tweetReply:TweetReply = {
+                    //         ReqType = "Reply" ;
+                    //         Type = "ShowTweet" ;
+                    //         Status = tweetCount ;
+                    //         TweetInfo = tweetMap.[tweetID] ;
+                    //     }
+                    //     sender <! (Json.serialize tweetReply)
 
-                    (* After sending back all the history tweet, reply to sender *)
-                    let (reply:ReplyInfo) = { 
-                        ReqType = "Reply" ;
-                        Type = "QueryHistory" ;
-                        Status =  "Success" ;
-                        Desc =  Some ("Query Tweets with "+tag+ " done") ;
-                    }
-                    sender <! (Json.serialize reply)       
+                    // (* After sending back all the history tweet, reply to sender *)
+                    // let (reply:ReplyInfo) = { 
+                    //     ReqType = "Reply" ;
+                    //     Type = "QueryHistory" ;
+                    //     Status =  "Success" ;
+                    //     Desc =  Some ("Query Tweets with "+tag+ " done") ;
+                    // }
+                    // sender <! (Json.serialize reply)       
 
             | "QuerySubscribe" ->
                 
@@ -612,7 +552,6 @@ let serverActorNode (serverMailbox:Actor<string>) =
                 printfn "client \"%s\" received unknown message \"%s\"" nodeName reqType
                 Environment.Exit 1
 
-        totalRequests <- totalRequests + 1
         msgProcessed <- msgProcessed + 1
         return! loop()
     }

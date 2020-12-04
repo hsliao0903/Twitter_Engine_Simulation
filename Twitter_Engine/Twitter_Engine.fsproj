@@ -6,8 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="../Twitter_Simulator/Message.fs" />
+    <Compile Include="Collections.fs"/>
+    <Compile Include="ActorOFDB.fs" />
     <Compile Include="Program.fs" />
+    
+    
   </ItemGroup>
 
   <ItemGroup>
