@@ -184,18 +184,19 @@ let clientActorNode (clientMailbox:Actor<string>) =
             | "Connect" ->
                 if isOnline then
                     if isSimulation then
-                        let triggerQueryHistory = """{"ReqType":"QueryHistory"}"""
-                        nodeSelfRef <! triggerQueryHistory
+                        //let triggerQueryHistory = """{"ReqType":"QueryHistory"}"""
+                        nodeSelfRef <! """{"ReqType":"QueryHistory", "UserID":"""+"\""+ nodeID.ToString() + "\"}"
                     else
                         
                         serverNode <! message
                 else
                     if isSimulation then
-                        let (connectMsg:ConnectInfo) = {
-                            ReqType = reqType ;
-                            UserID = nodeID ;
-                        }
-                        serverNode <! (Json.serialize connectMsg)
+                        serverNode <! message
+                        // let (connectMsg:ConnectInfo) = {
+                        //    ReqType = reqType ;
+                        //    UserID = nodeID ;
+                        // }
+                        // serverNode <! (Json.serialize connectMsg)
                     else
                         serverNode <! message
 
@@ -203,11 +204,12 @@ let clientActorNode (clientMailbox:Actor<string>) =
                 isOnline <- false
 
                 if isSimulation then
-                    let (disconnectMsg:ConnectInfo) = {
-                        ReqType = reqType ;
-                        UserID = nodeID ;
-                    }
-                    serverNode <! (Json.serialize disconnectMsg)
+                    // let (disconnectMsg:ConnectInfo) = {
+                    //     ReqType = reqType ;
+                    //     UserID = nodeID ;
+                    // }
+                    // serverNode <! (Json.serialize disconnectMsg)
+                    serverNode <! message
                 else
 
                     serverNode <! message
@@ -229,12 +231,13 @@ let clientActorNode (clientMailbox:Actor<string>) =
                                 serverNode <! message
                         else
                             if isSimulation then
-                                let (queryMsg:QueryInfo) = {
-                                    ReqType = reqType ;
-                                    UserID = nodeID ;
-                                    Tag = "" ;
-                                }
-                                serverNode <! (Json.serialize queryMsg)
+                                // let (queryMsg:QueryInfo) = {
+                                //     ReqType = reqType ;
+                                //     UserID = nodeID ;
+                                //     Tag = "" ;
+                                // }
+                                // serverNode <! (Json.serialize queryMsg)
+                                serverNode <! message
                             else
                                 serverNode <! message
 
@@ -550,11 +553,25 @@ let retweet (client: IActorRef) (targetUserID: int)=
     }
     client <! (Json.serialize request)
 let connect (client: IActorRef) = 
-    client <! """{"ReqType":"Connect"}"""
+    let (request: ConnectInfo) = {
+        ReqType = "Connect";
+        UserID = client.Path.Name |> int;
+    }
+    client <! (Json.serialize request)
 let disconnect (client: IActorRef) = 
-    client <! """{"ReqType":"Disconnect"}"""
+    let (request: ConnectInfo) = {
+        ReqType = "Disconnect";
+        UserID = client.Path.Name |> int;
+    }
+    client <! (Json.serialize request)
+
 let queryHistory (client: IActorRef) = 
-    client <! """{"ReqType":"QueryHistory"}"""
+    let (request: QueryInfo) = {
+        ReqType = "QueryHistory";
+        UserID = client.Path.Name |> int;
+        Tag = "";
+    }
+    client <! (Json.serialize request)
 let queryByMention (client: IActorRef) (mentionedUserID: int) = 
     let (request: QueryInfo) = {
         ReqType = "QueryHistory";
@@ -592,12 +609,18 @@ let spawnClients (clientNum: int) =
     |> List.map (fun id -> spawn system ((string) id) clientActorNode)
     |> List.toArray
 
-let arraySampler (arr: 'a []) (num: int) = 
-    let random = Random()
-    let rand () = random.Next(1, (Array.length arr))
-    [for i in 1 .. num -> arr.[rand()]] 
+let arraySampler (arr: 'T []) (num: int) = 
+    if arr.Length = 0 then 
+        List.empty
+    else
+        let rnd = System.Random()    
+        Seq.initInfinite (fun _ -> rnd.Next (arr.Length)) 
+        |> Seq.distinct
+        |> Seq.take(num)
+        |> Seq.map (fun i -> arr.[i]) 
+        |> Seq.toList
 
-let shuffleList (rand: Random) (l) = 
+let shuffle (rand: Random) (l) = 
     l |> Array.sortBy (fun _ -> rand.Next()) 
 
 let getNumOfSub (numClients: int)= 
@@ -608,7 +631,7 @@ let getNumOfSub (numClients: int)=
         |> List.toArray
     //printfn "res\n%A" res
     //Environment.Exit 1
-    shuffleList (Random()) res             
+    shuffle (Random()) res             
 
 let tagSampler (hashtags: string []) = 
     let random = Random()
@@ -675,29 +698,29 @@ let waitForServerResponse (timeout:float) =
 [<EntryPoint>]
 let main argv =
     try
-        (* test for generating different Tweets
-        printfn "New QueryTag JSON\n%A" (genQueryJSON "QueryTag")
-        printfn "New QueryHistory JSON\n%A" (genQueryJSON "QueryHistory")
-        printfn "New QueryMention JSON\n%A" (genQueryJSON "QueryMention")
-        printfn "New QuerySubscribe JSON\n%A" (genQueryJSON "QuerySubscribe")
-        printfn "New subscribe JSON\n%A" (genSubscribeJDON 0)
-        printfn "New retweet JSON\n%A" (genRetweetJSON 0)
-        printfn "New Connect JSON\n%A" (genConnectDisconnectJSON ("Connect",-1))
-        printfn "New Disonnect JSON\n%A" (genConnectDisconnectJSON ("Disconnect",0))
-        printfn "New Register JSON:\n%A" (genRegisterJSON "key")
-        printfn "New Tweet JSOn:\n%A" (genTweetJSON 0)
-        Environment.Exit 1
-        *)
-
         globalTimer.Start()
         (* simulate / user / debug*)
         let programMode = argv.[0]
         
         (* Simulator parameter variables *)
-        let mutable numClients = 0
-        let mutable percentActive = 0
+        let mutable numClients = 1000
+        let mutable maxCycle = 2000
         let mutable totalRequest = 2147483647
+        let hashtags = [|"#abc";"#123"; "#DOSP"; "#Twitter"; "#Akka"; "#Fsharp"|]
 
+        let mutable percentActive = 60
+        let mutable percentSendTweet = 50
+        let mutable percentRetweet = 20
+        let mutable percentQueryHistory = 20
+        let mutable percentQueryByMention = 10
+        let mutable percentQueryByTag = 10
+
+        let mutable numActive = numClients * percentActive / 100
+        let mutable numSendTweet = numActive * percentSendTweet / 100
+        let mutable numRetweet = numActive * percentRetweet / 100
+        let mutable numQueryHistory = numActive * percentQueryHistory / 100
+        let mutable numQueryByMention = numActive * percentQueryByMention / 100
+        let mutable numQueryByTag = numActive * percentQueryByTag / 100
     
         
         if programMode = "user" then
@@ -804,20 +827,46 @@ let main argv =
             (* Set to simulation mode *)
             printfn "\n\n[Simulator Mode]\n"
             printfn "Please enter some simulation parameters below:"
+
             printf "How many USERs you would like to simulate? "
-            numClients <- Console.ReadLine() |> int
-            printf "How many percent of USERs are active users? "
-            percentActive <- Console.ReadLine() |> int
-            printf "What is the total API  request to stop the simulator? "
-            totalRequest <- Console.ReadLine() |> int
-            printfn "This is you simulation settings..."
-            printfn "Number of Users: %i" numClients
-            printfn "Number of total requests: %i" totalRequest
-            printfn "Percentage of active users: %i%%" percentActive
-            printfn "(active users has three times more chances to send requests than inactive users)"
-            printfn "\n\n[Press any key to start the simulation]\n\n"
-            Console.ReadLine() |> ignore
+            numClients <- getUserInput "int" |> int
+
+            printf "How many percent(%%) of USERs are active in each repeated cycle? "
+            percentActive <- getUserInput "int" |> int
+            numActive <- numClients * percentActive / 100
+
+            printf "How many percent(%%) of active USERs send tweet in each repeated cycle? " 
+            percentSendTweet <- getUserInput "int" |> int
+            numSendTweet <- numClients * percentSendTweet / 100
+
+            printf "How many percent(%%) of active USERs retweet in each repeated cycle? " 
+            percentRetweet <- getUserInput "int" |> int
+            numRetweet <- numClients * percentRetweet / 100
+
+            let mutable remaining = 100    
+            printf "How many percent(%%) of active USERs query history in each repeated cycle? (max: %d) " remaining
+            percentQueryHistory <- getUserInput "int" |> int
+            numQueryHistory <- numClients * percentQueryHistory / 100
+            remaining <- remaining - percentQueryHistory
+
+            printf "How many percent(%%) of active USERs query by metnion in each repeated cycle? (max: %d) " remaining
+            percentQueryByMention<- getUserInput "int" |> int
+            numQueryByMention <- numClients * percentQueryByMention / 100
+            remaining <- remaining - percentQueryByMention
+
+            printf "How many percent(%%) of active USERs query by tag in each repeated cycle? (max: %d) " remaining
+            percentQueryByTag<- getUserInput "int" |> int
+            numQueryByTag <- numClients * percentQueryByTag / 100
+            remaining <- remaining - percentQueryByTag
+
+            printf "What is the total API request to stop the simulator? "
+            totalRequest <- getUserInput "int" |> int
+
+            printf "What is the maximum number of cycle of repeated simulations? "
+            maxCycle <- getUserInput "int" |> int
+            
             isSimulation <- true
+
         else if programMode = "debug" then
             isSimulation <- true
             printfn "\n\n[Debug Mode]\n"
@@ -844,38 +893,47 @@ let main argv =
         //   5.
         // ----------------------------------------------------------
         (* Setup *)
-        numClients <- 1000
-        let propOnline = 0.6
-        let propSendTweet = 0.5
-        let propRetweet = 0.3
-        let maxCycle = 100000000
-        let numOnline =  propOnline * (float)numClients |> int
-        let numSendTweet = (float)numOnline * propSendTweet |> int
-        let numDoSome = (float) numOnline * propRetweet |> int
-        let hashtags = [|"#abc";"#123"; "#DOSP"; "#Twitter"; "#Akka"; "#Fsharp"|]
 
-        printfn "-----------------------------Simulation Setup--------------------------------"
-        printfn " numOneline: %d, numSendTweet: %d, numDoSome: %d" numOnline numSendTweet numDoSome
-        printfn "-----------------------------------------------------------------------------"   
-        printfn "Press ENTER to start simulation"
+        printfn "\n\n\n\n\n
+        -----------------------------Simulation Setup--------------------------------\n
+        This is you simulation settings...\n
+        Number of Users: %d\n
+        Number of total requests: %d\n
+        Number of maximum of repeated cycles: %d\n
+        Number of active users: %d (%d%%)\n
+        Number of active users who send a tweet: %d (%d%%)\n
+        Number of active users who send a retweet: %d (%d%%)\n
+        Number of active users who query history: %d (%d%%)\n
+        Number of active users who query by mention: %d (%d%%)\n
+        Number of active users who send by tag: %d (%d%%)\n
+        -----------------------------------------------------------------------------"
+            numClients totalRequest maxCycle numActive percentActive numSendTweet 
+            percentSendTweet numRetweet percentRetweet numQueryHistory percentQueryHistory
+            numQueryByMention percentQueryByMention numQueryByTag percentQueryByTag
+
+        printfn "\n\n[Press any key to start the simulation]\n\n"
         Console.ReadLine() |> ignore
+
         (* 1. spawn clients *)
         let myClients = spawnClients numClients
         //clientSampler myClients 5 |> List.iter(fun client -> printfn "%s" (client.Path.ToString()))
         //clientSampler myClients 5 |> List.iter(fun client -> printfn "%s" (client.Path.ToString()))
-        
+
         (* 2. register all clients *)
+        let numOfSub = getNumOfSub numClients
+        
         myClients 
-        |> Array.map(fun client ->
+        |> Array.map(fun client -> 
             async{
                 register client
             })
         |> Async.Parallel
         |> Async.RunSynchronously
         |> ignore
-                
+
+        Console.ReadLine() |> ignore
+
         (* 3. randomly subscribe each other (follow the Zipf) *)
-        let numOfSub = getNumOfSub numClients
         myClients
         |> Array.mapi(fun i client ->
             async {
@@ -916,70 +974,78 @@ let main argv =
         |> Async.Parallel
         |> Async.RunSynchronously
         |> ignore
+
+        System.Threading.Thread.Sleep (max numClients 2000)
+        printfn "\n\n[Press any key to start repeated simulation flow]\n\n"
         Console.ReadLine() |> ignore
 
         printfn "----------------------------- Repeated Simulation ----------------------------"
         printfn " maxCycle: %d" maxCycle
         printfn "------------------------------------------------------------------------------"
+        
         globalTimer.Start()
-        let timer = new Timers.Timer(1000.)
+        let timer = new Timers.Timer(500.)
         let event = Async.AwaitEvent (timer.Elapsed) |> Async.Ignore
         let connections = Array.create (numClients+1) false
         let mutable cycle = 0
         timer.Start()
         while cycle < maxCycle do
+            printfn "----------------------------- CYCLE %d ------------------------------------" cycle
             cycle <- cycle + 1
             Async.RunSynchronously event
 
             (* randomly select some clients connected *)
-            let toDisconnect =
-                arraySampler (getDisconnectedID connections) numOnline
-                |> List.map (fun clientID -> 
-                    connections.[clientID] <- true
-                    clientID
-                    )
-            //printfn "toDisconnect %A" toDisconnect
-            toDisconnect        
+            let connecting = (getConnectedID connections)
+            let numToDisonnect = ((float) connecting.Length) * 0.3 |> int
+
+            //printfn "toDisconnect %A" numToDisonnect
+
+            arraySampler connecting numToDisonnect        
             |> List.map (fun clientID -> 
                 async{
-                    connect myClients.[clientID-1]
+                    disconnect myClients.[clientID-1]
+                    connections.[clientID] <- false
                 })
             |> Async.Parallel
             |> Async.RunSynchronously
             |> ignore
+                     
             
             (* randomly select some clients connected *)
-            let toConnect = 
-                arraySampler (getConnectedID connections) numOnline
-                |> List.map (fun clientID -> 
-                    connections.[clientID] <- false
-                    clientID
-                    )
-            //printfn "toConnect %A" toConnect
-            toConnect
+            let disconnecting = (getDisconnectedID connections)
+            let numToConnect = ((float) disconnecting.Length) * 0.31 |> int
+            
+            arraySampler disconnecting numToConnect
             |> List.map (fun clientID -> 
                 async{
                     connect myClients.[clientID-1]
-                    connections.[clientID] <- false
+                    connections.[clientID] <- true
                 })
             |> Async.Parallel
             |> Async.RunSynchronously
             |> ignore
+
+            // Console.ReadLine() |> ignore
+            // printfn "numActive %d" numActive
+            // printfn "length: %d toConnect: %A" toConnect.Length toConnect
+            printfn "length:%d Connecting: %A" (getConnectedID connections).Length (getConnectedID connections)
+            // Console.ReadLine() |> ignore
 
             (* randomly select some clients to send a tweet *)
             let rand = Random()
             arraySampler (getConnectedID connections) numSendTweet
             |> List.map (fun clientID -> 
                     async{
-                        sendTweet myClients.[clientID-1] (tagSampler hashtags) (rand.Next())
+                        sendTweet myClients.[clientID-1] (tagSampler hashtags) (rand.Next(1, numClients))
                 })
             |> Async.Parallel
             |> Async.RunSynchronously
             |> ignore 
              
+            printfn "START RETWEEEEEET------------------------------------"
             (* randomly select some clients to retweet *)
             let rand = Random()
-            arraySampler (getConnectedID connections) numDoSome
+            arraySampler (getConnectedID connections) numRetweet
             |> List.map (fun clientID -> 
                     async{
                         retweet myClients.[clientID-1] (rand.Next(1,numClients))
@@ -988,9 +1054,20 @@ let main argv =
             |> Async.RunSynchronously
             |> ignore 
 
+            printfn "START HISTORYYYYYY------------------------------------"
             (* randomly select some clients to query history*)
-            arraySampler (getConnectedID connections) numDoSome
-            |> List.map (fun clientID -> 
+            let rand = Random()
+            let shuffledConnects = getConnectedID connections |> shuffle rand
+
+            // Console.ReadLine() |> ignore
+            // printfn "connected %d" shuffledConnects.Length
+            // printfn "num:%d   %A" numQueryHistory shuffledConnects.[0 .. numQueryHistory-1]
+            // printfn "%A" shuffledConnects.[numQueryHistory .. (numQueryHistory + numQueryByMention - 1)]
+            // printfn "%A" shuffledConnects.[(numQueryHistory + numQueryByMention) .. (numQueryHistory + numQueryByMention + numQueryByTag - 1)]
+            // Console.ReadLine() |> ignore
+
+            shuffledConnects.[0 .. numQueryHistory-1]
+            |> Array.map (fun clientID -> 
                     async{
                         queryHistory myClients.[clientID-1]
                 })
@@ -1000,8 +1077,8 @@ let main argv =
              
             (* randomly select some clients to query by mention*)
             let rand = Random()
-            arraySampler (getConnectedID connections) numDoSome
-            |> List.map (fun clientID -> 
+            shuffledConnects.[numQueryHistory .. (numQueryHistory + numQueryByMention - 1)]
+            |> Array.map (fun clientID -> 
                     async{
                         queryByMention myClients.[clientID-1] (rand.Next(1,numClients))
                 })
@@ -1010,21 +1087,22 @@ let main argv =
             |> ignore 
 
             (* randomly select some clients to query by tag*)
-            arraySampler (getConnectedID connections) numDoSome
-            |> List.map (fun clientID -> 
+            shuffledConnects.[(numQueryHistory + numQueryByMention) .. (numQueryHistory + numQueryByMention + numQueryByTag - 1)]
+            |> Array.map (fun clientID -> 
                     async{
                         queryByTag myClients.[clientID-1] (tagSampler hashtags)
                 })
             |> Async.Parallel
             |> Async.RunSynchronously
             |> ignore 
+          
 
 
         globalTimer.Stop()
         Console.ReadLine() |> ignore
         printfn "Total time %A" globalTimer.Elapsed
 
-        
+          
     with | :? IndexOutOfRangeException ->
             printfn "\n\n[Error] Wrong argument!!\n Plese use: \n1. dotnet run simulate\n2. dotnet run user\n\n"
 
