@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Collections.fs"/>
+    <Compile Include="Collections.fs" />
     <Compile Include="ActorOFDB.fs" />
     <Compile Include="Program.fs" />
     
@@ -15,7 +15,6 @@
 
   <ItemGroup>
     <PackageReference Include="Akka" Version="1.4.12" />
-    <PackageReference Include="Akka.Cluster" Version="1.4.12" />
     <PackageReference Include="Akka.FSharp" Version="1.4.12" />
     <PackageReference Include="Akka.Remote" Version="1.4.12" />
     <PackageReference Include="FSharp.Data" Version="3.3.3" />

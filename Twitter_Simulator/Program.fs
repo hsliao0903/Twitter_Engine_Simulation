@@ -862,41 +862,41 @@ let main argv =
             printfn "\n\n[Simulator Mode]\n"
             printfn "Please enter some simulation parameters below:"
 
-            printf "How many USERs you would like to simulate? "
+            printf "How many USERs you would like to simulate?\n"
             numClients <- getUserInput "int" |> int
 
-            printf "How many percent(%%) of USERs are active in each repeated cycle? "
+            printf "How many percent(%%) of USERs are active in each repeated cycle?\n "
             percentActive <- getUserInput "int" |> int
             numActive <- numClients * percentActive / 100
 
-            printf "How many percent(%%) of active USERs send tweet in each repeated cycle? " 
+            printf "How many percent(%%) of active USERs send tweet in each repeated cycle?\n " 
             percentSendTweet <- getUserInput "int" |> int
-            numSendTweet <- numClients * percentSendTweet / 100
+            numSendTweet <- numActive * percentSendTweet / 100
 
-            printf "How many percent(%%) of active USERs retweet in each repeated cycle? " 
+            printf "How many percent(%%) of active USERs retweet in each repeated cycle?\n " 
             percentRetweet <- getUserInput "int" |> int
-            numRetweet <- numClients * percentRetweet / 100
+            numRetweet <- numActive * percentRetweet / 100
 
             let mutable remaining = 100    
-            printf "How many percent(%%) of active USERs query history in each repeated cycle? (max: %d) " remaining
+            printf "How many percent(%%) of active USERs query history in each repeated cycle? (max: %d)\n " remaining
             percentQueryHistory <- getUserInput "int" |> int
-            numQueryHistory <- numClients * percentQueryHistory / 100
+            numQueryHistory <- numActive * percentQueryHistory / 100
             remaining <- remaining - percentQueryHistory
 
-            printf "How many percent(%%) of active USERs query by metnion in each repeated cycle? (max: %d) " remaining
+            printf "How many percent(%%) of active USERs query by metnion in each repeated cycle? (max: %d)\n " remaining
             percentQueryByMention<- getUserInput "int" |> int
-            numQueryByMention <- numClients * percentQueryByMention / 100
+            numQueryByMention <- numActive * percentQueryByMention / 100
             remaining <- remaining - percentQueryByMention
 
-            printf "How many percent(%%) of active USERs query by tag in each repeated cycle? (max: %d) " remaining
+            printf "How many percent(%%) of active USERs query by tag in each repeated cycle? (max: %d)\n " remaining
             percentQueryByTag<- getUserInput "int" |> int
-            numQueryByTag <- numClients * percentQueryByTag / 100
+            numQueryByTag <- numActive * percentQueryByTag / 100
             remaining <- remaining - percentQueryByTag
 
-            printf "What is the total API request to stop the simulator? "
+            printf "What is the total API request to stop the simulator?\n "
             totalRequest <- getUserInput "int" |> int
 
-            printf "What is the maximum number of cycle of repeated simulations? "
+            printf "What is the maximum number of cycle of repeated simulations?\n "
             maxCycle <- getUserInput "int" |> int
             
             isSimulation <- true
@@ -945,7 +945,8 @@ let main argv =
             percentSendTweet numRetweet percentRetweet numQueryHistory percentQueryHistory
             numQueryByMention percentQueryByMention numQueryByTag percentQueryByTag
 
-        printfn "\n\n[Press any key to start the simulation]\n\n"
+        printfn "\n\n[Press any key to start the simulation]\n"
+        printfn "[Once it starts, the client registration will need few seconds...]\n"
         Console.ReadLine() |> ignore
 
         (* 1. spawn clients *)
@@ -964,8 +965,9 @@ let main argv =
         |> Async.Parallel
         |> Async.RunSynchronously
         |> ignore
-
-        Console.ReadLine() |> ignore
+        
+        System.Threading.Thread.Sleep (max numClients 3000)
+        //Console.ReadLine() |> ignore
 
         (* 3. randomly subscribe each other (follow the Zipf) *)
         myClients
@@ -1010,7 +1012,8 @@ let main argv =
         |> ignore
 
         System.Threading.Thread.Sleep (max numClients 2000)
-        printfn "\n\n[Press any key to start repeated simulation flow]\n\n"
+        printfn "\n\n[The simulation setup has done!]"
+        printfn "\n[Press any key to start repeated simulation flow]\n\n"
         Console.ReadLine() |> ignore
 
         printfn "----------------------------- Repeated Simulation ----------------------------"
@@ -1018,7 +1021,7 @@ let main argv =
         printfn "------------------------------------------------------------------------------"
         
         globalTimer.Start()
-        let timer = new Timers.Timer(500.)
+        let timer = new Timers.Timer(1000.)
         let event = Async.AwaitEvent (timer.Elapsed) |> Async.Ignore
         let connections = Array.create (numClients+1) false
         let mutable cycle = 0
@@ -1133,8 +1136,12 @@ let main argv =
 
 
         globalTimer.Stop()
+        System.Threading.Thread.Sleep (max numClients 2000)
+        printfn "\n\n[%i cycles of simulation has done!]" maxCycle
+        printfn "Total time %A" globalTimer.Elapsed
         Console.ReadLine() |> ignore
         printfn "Total time %A" globalTimer.Elapsed
+        
 
           
     with | :? IndexOutOfRangeException ->
