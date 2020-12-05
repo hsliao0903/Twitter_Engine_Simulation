@@ -111,14 +111,13 @@ type UserModeStatusCheck =
 let mutable (isUserModeLoginSuccess:UserModeStatusCheck) = Waiting
 
 (* Client Node Actor*)
-let clientActorNode (clientMailbox:Actor<string>) =
+let clientActorNode (isSingleUser: bool) (clientMailbox:Actor<string>) =
     let mutable nodeName = "User" + clientMailbox.Self.Path.Name
     let mutable nodeID = 
         match (Int32.TryParse(clientMailbox.Self.Path.Name)) with
         | (true, value) -> value
         | (false, _) -> 0
-
-        
+    
     let nodeSelfRef = clientMailbox.Self
     
     (* User have to connect (online) to server first before using twitter API, register API has no this kind of limit *)
@@ -129,7 +128,6 @@ let clientActorNode (clientMailbox:Actor<string>) =
     (* Need a query lock to make sure there is other query request until the last query has done*)
     (* If a new query request comes, set it to true, until the server replies query seccess in reply message *)
     let mutable isQuerying = false
-
 
     let rec loop() = actor {
         let! (message: string) = clientMailbox.Receive()
@@ -150,7 +148,9 @@ let clientActorNode (clientMailbox:Actor<string>) =
                 else
                     serverNode <! message
                 
-                
+                if isSingleUser then 
+                    globalTimer.Restart()
+
             | "SendTweet" ->
                 if isOffline then
                     printfn "[%s] Send tweet failed, please connect to Twitter server first" nodeName
@@ -161,6 +161,9 @@ let clientActorNode (clientMailbox:Actor<string>) =
                     else
                         serverNode <! message
 
+                if isSingleUser then 
+                    globalTimer.Restart()
+
             | "Retweet" ->
                 if isOffline then
                     printfn "[%s] Send tweet failed, please connect to Twitter server first" nodeName
@@ -170,7 +173,10 @@ let clientActorNode (clientMailbox:Actor<string>) =
                         serverNode <! message
                     else
                         serverNode <! message
-                
+
+                if isSingleUser then 
+                    globalTimer.Restart()
+
             | "Subscribe" ->
                 if isOffline then
                     printfn "[%s] Subscribe failed, please connect to Twitter server first" nodeName
@@ -180,6 +186,9 @@ let clientActorNode (clientMailbox:Actor<string>) =
                         serverNode <! message
                     else
                         serverNode <! message
+                
+                if isSingleUser then 
+                    globalTimer.Restart()
 
             | "Connect" ->
                 if isOnline then
@@ -199,6 +208,9 @@ let clientActorNode (clientMailbox:Actor<string>) =
                         // serverNode <! (Json.serialize connectMsg)
                     else
                         serverNode <! message
+                
+                if isSingleUser then 
+                    globalTimer.Restart()
 
             | "Disconnect" ->
                 isOnline <- false
@@ -213,6 +225,9 @@ let clientActorNode (clientMailbox:Actor<string>) =
                 else
 
                     serverNode <! message
+                
+                if isSingleUser then 
+                    globalTimer.Restart()
 
             | "QueryHistory" | "QuerySubscribe" | "QueryMention" | "QueryTag" ->
                 if isOffline then
@@ -240,12 +255,17 @@ let clientActorNode (clientMailbox:Actor<string>) =
                                 serverNode <! message
                             else
                                 serverNode <! message
-
+                    
+                    if isSingleUser then 
+                        globalTimer.Restart()
+                
             (* Deal with all reply messages  *)
             | "Reply" ->
                 let replyType = jsonMsg?Type.AsString()
                 match replyType with
                     | "Register" ->
+                        if isSingleUser then 
+                            System.Console.WriteLine("Reponse time for register: {0}", globalTimer.Elapsed)
                         let status = jsonMsg?Status.AsString()
                         let registerUserID = jsonMsg?Desc.AsString() |> int
                         if status = "Success" then
@@ -259,6 +279,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                                 UserID = registerUserID ;
                             }
                             serverNode <! (Json.serialize connectMsg)
+                            globalTimer.Restart()
                             //let triggerConnect = """{"ReqType":"Connect"}"""
                             //nodeSelfRef <! triggerConnect
                         else
@@ -266,7 +287,11 @@ let clientActorNode (clientMailbox:Actor<string>) =
                                 printfn "[%s] Register failed!\n\t(this userID might have already registered before)" nodeName
                             else
                                 isUserModeLoginSuccess <- Fail
+                        
+
                     | "Subscribe" ->
+                        if isSingleUser then 
+                            System.Console.WriteLine("Reponse time for subscribe: {0}", globalTimer.Elapsed)
                         let status = jsonMsg?Status.AsString()
                         if status = "Success" then
                             printfn "[%s] Subscirbe done!" nodeName
@@ -274,6 +299,8 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             printfn "[%s] Subscribe failed!" nodeName
 
                     | "SendTweet" ->
+                        if isSingleUser then 
+                            System.Console.WriteLine("Reponse time for sendTweet: {0}", globalTimer.Elapsed)
                         let status = jsonMsg?Status.AsString()
                         if status = "Success" then
                             printfn "[%s] %s" nodeName (jsonMsg?Desc.AsString())
@@ -281,6 +308,8 @@ let clientActorNode (clientMailbox:Actor<string>) =
                             printfn "[%s] %s" nodeName (jsonMsg?Desc.AsString())
 
                     | "Connect" ->
+                        if isSingleUser then 
+                            System.Console.WriteLine("Reponse time for sendTweet: {0}", globalTimer.Elapsed)
                         let status = jsonMsg?Status.AsString()
                         if status = "Success" then
                             isOnline <- true
@@ -295,6 +324,7 @@ let clientActorNode (clientMailbox:Actor<string>) =
                                 Tag = "" ;
                             }
                             serverNode <! (Json.serialize queryMsg)
+                            globalTimer.Restart()
                             //let triggerQueryHistory = """{"ReqType":"QueryHistory"}"""
                             //nodeSelfRef <! triggerQueryHistory
                         else
@@ -305,11 +335,15 @@ let clientActorNode (clientMailbox:Actor<string>) =
 
 
                     | "Disconnect" ->
+                        if isSingleUser then 
+                            System.Console.WriteLine("Reponse time for Disconnect: {0}", globalTimer.Elapsed)
                         if isSimulation then 
                             printfn "[%s] User%s disconnected from the server" nodeName (jsonMsg?Desc.AsString())
                         else
                             isUserModeLoginSuccess <- Success
                     | "QueryHistory" ->
+                        if isSingleUser then 
+                            System.Console.WriteLine("Reponse time for QueryHistory: {0}", globalTimer.Elapsed)
                         let status = jsonMsg?Status.AsString()
                         if status = "Success" then
                             isQuerying <- false
@@ -606,7 +640,7 @@ let queryBySubscribtion (client: IActorRef) (id: int) =
 
 let spawnClients (clientNum: int) = 
     [1 .. clientNum]
-    |> List.map (fun id -> spawn system ((string) id) clientActorNode)
+    |> List.map (fun id -> spawn system ((string) id) (clientActorNode false))
     |> List.toArray
 
 let arraySampler (arr: 'T []) (num: int) = 
@@ -704,7 +738,7 @@ let main argv =
         
         (* Simulator parameter variables *)
         let mutable numClients = 1000
-        let mutable maxCycle = 2000
+        let mutable maxCycle = 1000
         let mutable totalRequest = 2147483647
         let hashtags = [|"#abc";"#123"; "#DOSP"; "#Twitter"; "#Akka"; "#Fsharp"|]
 
@@ -726,7 +760,7 @@ let main argv =
         if programMode = "user" then
             (* Create a terminal actor node for user mode *)
             
-            let termianlRef = spawn system "TerminalNode" clientActorNode
+            let termianlRef = spawn system "TerminalNode" (clientActorNode true)
             let mutable curUserID = -1
             let mutable curState= 0
             (* Prompt User for Simulator Usage *)
