@@ -1,5 +1,23 @@
-Brief usage:
+-----------------------------------------------------------------
+Gaol of this project
+-----------------------------------------------------------------
+Twitter like engine to support some of the Twitter APIs, such as "Send a Tweet", "Retweet", "Subscribe" or "Querying Tweets" etc.
+Simualator prgram that simulates lots of users simultaneously accessing the Twitter like engine.
 
+
+-----------------------------------------------------------------
+Libraries/Programming labguage
+-----------------------------------------------------------------
+.NET 5.0
+F#
+Akka.FSharp
+AKKa.Remote
+FSharp.JSON
+
+
+-----------------------------------------------------------------
+Brief usage
+-----------------------------------------------------------------
 1.
 First, run the program in "Twitter_Engine" directory as a server:
 cd Twitter_Engine
@@ -33,7 +51,8 @@ In the user mode, we have to connect to the server with a user account first, or
 After successfully connected to the server, we could use different kind of commands to send requests.
 We could disconnect to the server, and reconnect the server with different accounts
 
-
+-----------------------------------------------------------------
 Author:
 Please let me know if there is any question, thanks!
 Hsiang-Yuan Alex Liao    hs.liao@ufl.edu
+-----------------------------------------------------------------
